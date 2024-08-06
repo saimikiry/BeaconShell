@@ -7,11 +7,13 @@ import (
 	"log"
 	"net"
 	"os"
-	"runtime"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
+// Структура цели
 type Target struct {
 	name string
 	conn net.Conn
@@ -20,35 +22,69 @@ type Target struct {
 // Предоставляет список встроенных команд (вызов: /BS help).
 func BindShellHelp() {
 	fmt.Println("[BindShell] Command list:")
-	fmt.Println("\t- /BS add <ip> <port> \t\tAdd target <ip>:<port> to set; (TODO)")
+	fmt.Println("\t- /BS add <ip> <port> \t\tAdd target <ip>:<port> to set;")
 	fmt.Println("\t- /BS help \t\t\tShow this list;")
-	fmt.Println("\t- /BS remove <ip> <port> \tRemove target <ip>:<port> from set; (TODO)")
+	fmt.Println("\t- /BS remove <index> \tRemove target from set;")
 	fmt.Println("\t- /BS stop \t\t\tFinish session;")
 	fmt.Println("\t- /BS targets \t\t\tShow current targets list.")
 }
 
-// Завершает работу (вызов: /BS stop)
+// Завершает работу программы (вызов: /BS stop)
 func BindShellStop(targets *[]Target) {
 	// Завершение всех активных соединений
 	finishAllSessions(targets)
 
-	// Завергение программы
+	// Завершение программы
 	fmt.Println("Shutdown...")
 	os.Exit(0)
 }
 
+// Выводит список целевых хостов (вызов: /BS targets)
 func BindShellTargets(targets *[]Target) {
 	fmt.Println("[BindShell] Current targets:")
 	for i := 0; i < len(*targets); i++ {
-		fmt.Printf("\t- %s\n", (*targets)[i].name)
+		fmt.Printf("\t[%d] %s\n", i, (*targets)[i].name)
+	}
+}
+
+// Удаляет выбранный хост из списка целей и завершает с ним сессию (вызов: /BS remove)
+func BindShellRemove(targets *[]Target, idx int) {
+	// Завершение сессии удаляемого хоста
+	finishSession((*targets)[idx])
+
+	fmt.Printf("[BindShell] %s << Host removed from target list.\n", (*targets)[idx].name)
+
+	// Удаление хоста из списка целей
+	*targets = append((*targets)[:idx], (*targets)[idx+1:]...)
+}
+
+// Устанавливает соединение с выбранным хостом и добавляет его в список целей (вызов: /BS add)
+func BindShellAdd(targets *[]Target, target_name string) {
+	addSession(targets, target_name)
+}
+
+func addSession(targets *[]Target, target_name string) {
+	// Установка соединения с целевым хостом
+	conn, err := net.Dial("tcp", target_name)
+	if err != nil {
+		log.Fatalln(err)
+	} else {
+		fmt.Printf("[BindShell] %s << Connection successfully established.\n", target_name)
+	}
+
+	// Добавление хоста в список целей
+	*targets = append(*targets, Target{name: target_name, conn: conn})
+}
+
+func finishSession(target Target) {
+	if target.conn.Close() == nil {
+		fmt.Printf("[BindShell] %s << Connection successfully terminated.\n", target.name)
 	}
 }
 
 func finishAllSessions(targets *[]Target) {
 	for i := 0; i < len(*targets); i++ {
-		if (*targets)[i].conn.Close() == nil {
-			fmt.Printf("[BindShell] %s << Connection successfully terminated.\n", (*targets)[i].name)
-		}
+		finishSession((*targets)[i])
 	}
 }
 
@@ -74,31 +110,34 @@ func BindShellLoadTargets(targets *[]Target, targets_file string) {
 		// Получение имени хоста
 		target_name := scanner.Text()
 
-		// Установка соединения с целевым хостом
-		conn, err := net.Dial("tcp", target_name)
-		if err != nil {
-			log.Fatalln(err)
-		} else {
-			fmt.Printf("[BindShell] %s << Connection successfully established.\n", target_name)
-		}
-
-		// Добавление хоста в список целей
-		*targets = append(*targets, Target{name: target_name, conn: conn})
+		// Добавление сессии
+		addSession(targets, target_name)
 	}
 }
 
 func BindShellRequest(request []string, targets *[]Target) {
 	switch request[1] {
+	case "add":
+		BindShellAdd(targets, request[2])
+		//fmt.Print(1)
 	case "help":
 		BindShellHelp()
+	case "remove":
+		idx, err := strconv.Atoi(request[2])
+		if err != nil {
+			fmt.Println("[BindShell] The index is an invalid number!")
+		} else if idx >= len(*targets) || idx < 0 {
+			fmt.Println("[BindShell] The index is out of bounds!")
+		}
+		BindShellRemove(targets, idx)
 	case "stop":
 		BindShellStop(targets)
-	case "target":
+	case "targets":
 		BindShellTargets(targets)
 	}
 }
 
-func getCommandResult(ctx context.Context, target Target) {
+func getCommandResult(ctx context.Context, mtx *sync.Mutex, target Target) {
 	buffer := make([]byte, 4096)
 	for {
 		select {
@@ -106,8 +145,10 @@ func getCommandResult(ctx context.Context, target Target) {
 			return
 		default:
 			target.conn.Read(buffer)
-			fmt.Printf("%s\n", target.name)
+			(*mtx).Lock()
+			fmt.Printf("[%s]\n", target.name)
 			fmt.Println(string(buffer))
+			(*mtx).Unlock()
 		}
 	}
 }
@@ -121,6 +162,9 @@ func main() {
 
 	// Создание объекта NewReader стандартного потока ввода
 	reader := bufio.NewReader(os.Stdin)
+
+	// Создание мьютекса для корректировки порядка io
+	mtx := sync.Mutex{}
 
 	// Инструктаж пользователя
 	fmt.Printf("[BindShell] Print \"/BS help\" to get info.\n")
@@ -156,14 +200,14 @@ func main() {
 				defer cancel()
 
 				// Вызов горутины для ожидания ответа
-				go getCommandResult(ctx, targets[i])
+				go getCommandResult(ctx, &mtx, targets[i])
 			}
 
 			// Фактическое ожидание в течение 50 миллисекунд
 			// TODO: изучить вопрос контекста и убрать лишнее создание горутин (?)
 			// Или применять далее для масштабирования выполнения команд на нескольких удаленных хостах
-			fmt.Printf("R: %d\n", runtime.NumGoroutine())
-			time.Sleep(50 * time.Millisecond)
+			//fmt.Printf("R: %d\n", runtime.NumGoroutine())
+			time.Sleep(100 * time.Millisecond)
 		}
 	}
 }
