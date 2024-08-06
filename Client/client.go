@@ -7,6 +7,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -15,18 +16,22 @@ import (
 
 // Структура цели
 type Target struct {
-	name string
-	conn net.Conn
+	name   string
+	conn   net.Conn
+	status bool
 }
 
 // Предоставляет список встроенных команд (вызов: /BS help).
 func BindShellHelp() {
 	fmt.Println("[BindShell] Command list:")
-	fmt.Println("\t- /BS add <ip> <port> \t\tAdd target <ip>:<port> to set;")
+	fmt.Println("\t- /BS add <ip:port> \t\tAdd target <ip>:<port> to set;")
 	fmt.Println("\t- /BS help \t\t\tShow this list;")
-	fmt.Println("\t- /BS remove <index> \tRemove target from set;")
+	fmt.Println("\t- /BS off <index> \t\tStop sending commands to the host; (TODO)")
+	fmt.Println("\t- /BS on <index> \t\tResume sending commands to the host; (TODO)")
+	fmt.Println("\t- /BS remove <index> \t\tRemove target from set;")
 	fmt.Println("\t- /BS stop \t\t\tFinish session;")
-	fmt.Println("\t- /BS targets \t\t\tShow current targets list.")
+	fmt.Println("\t- /BS targets \t\t\tShow current targets list;")
+	fmt.Println("\t- /BS wait <time> \t\tSet targets response waiting to <time> milliseconds. (TODO)")
 }
 
 // Завершает работу программы (вызов: /BS stop)
@@ -35,7 +40,7 @@ func BindShellStop(targets *[]Target) {
 	finishAllSessions(targets)
 
 	// Завершение программы
-	fmt.Println("Shutdown...")
+	fmt.Println("[BindShell] Shutdown...")
 	os.Exit(0)
 }
 
@@ -43,7 +48,11 @@ func BindShellStop(targets *[]Target) {
 func BindShellTargets(targets *[]Target) {
 	fmt.Println("[BindShell] Current targets:")
 	for i := 0; i < len(*targets); i++ {
-		fmt.Printf("\t[%d] %s\n", i, (*targets)[i].name)
+		if (*targets)[i].status == true {
+			fmt.Printf("\t<%d> [+] %s\n", i, (*targets)[i].name)
+		} else {
+			fmt.Printf("\t<%d> [-] %s\n", i, (*targets)[i].name)
+		}
 	}
 }
 
@@ -73,7 +82,7 @@ func addSession(targets *[]Target, target_name string) {
 	}
 
 	// Добавление хоста в список целей
-	*targets = append(*targets, Target{name: target_name, conn: conn})
+	*targets = append(*targets, Target{name: target_name, conn: conn, status: true})
 }
 
 func finishSession(target Target) {
@@ -119,7 +128,6 @@ func BindShellRequest(request []string, targets *[]Target) {
 	switch request[1] {
 	case "add":
 		BindShellAdd(targets, request[2])
-		//fmt.Print(1)
 	case "help":
 		BindShellHelp()
 	case "remove":
@@ -137,7 +145,9 @@ func BindShellRequest(request []string, targets *[]Target) {
 	}
 }
 
-func getCommandResult(ctx context.Context, mtx *sync.Mutex, target Target) {
+func getCommandResult(mtx *sync.Mutex, target Target) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
 	buffer := make([]byte, 4096)
 	for {
 		select {
@@ -148,7 +158,9 @@ func getCommandResult(ctx context.Context, mtx *sync.Mutex, target Target) {
 			(*mtx).Lock()
 			fmt.Printf("[%s]\n", target.name)
 			fmt.Println(string(buffer))
+			buffer = buffer[:0]
 			(*mtx).Unlock()
+			return
 		}
 	}
 }
@@ -175,6 +187,11 @@ func main() {
 		// Считывание команды пользователя
 		input, _ := reader.ReadString('\n')
 
+		// Обработка пустого ввода
+		if len(input) <= 2 {
+			continue
+		}
+
 		// Удаление лишних символов
 		input = input[:len(input)-2]
 
@@ -196,18 +213,17 @@ func main() {
 				}
 
 				// Создание контекста для ожидания ответа в течение 20 миллисекунд
-				ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
-				defer cancel()
+				//ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+				//defer cancel()
 
 				// Вызов горутины для ожидания ответа
-				go getCommandResult(ctx, &mtx, targets[i])
+				go getCommandResult(&mtx, targets[i])
 			}
 
 			// Фактическое ожидание в течение 50 миллисекунд
 			// TODO: изучить вопрос контекста и убрать лишнее создание горутин (?)
-			// Или применять далее для масштабирования выполнения команд на нескольких удаленных хостах
-			//fmt.Printf("R: %d\n", runtime.NumGoroutine())
-			time.Sleep(100 * time.Millisecond)
+			fmt.Printf("R: %d\n", runtime.NumGoroutine())
+			time.Sleep(50 * time.Millisecond)
 		}
 	}
 }
