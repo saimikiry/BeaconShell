@@ -18,8 +18,8 @@ type Target struct {
 	status bool
 }
 
-var global_response_timeout int = 100
-var global_response_waiting int = 500
+var global_response_timeout int = 1000
+var active_targets int = 0
 
 // Предоставляет список встроенных команд (вызов: /BS help).
 func BindShellHelp() {
@@ -33,7 +33,6 @@ func BindShellHelp() {
 	fmt.Println("\t- /BS stop \t\t\tFinish session;")
 	fmt.Println("\t- /BS targets \t\t\tShow current targets list;")
 	fmt.Println("\t- /BS timeout <time> \t\tSet targets response timeout to <time> milliseconds;")
-	fmt.Println("\t- /BS waiting <time> \t\tSet response waiting to <time> milliseconds.")
 }
 
 // Завершает работу программы (вызов: /BS stop)
@@ -60,6 +59,8 @@ func BindShellTargets(targets *[]Target) {
 
 // Удаляет выбранный хост из списка целей и завершает с ним сессию (вызов: /BS remove)
 func BindShellRemove(targets *[]Target, idx int) {
+	active_targets--
+
 	// Завершение сессии удаляемого хоста
 	finishSession((*targets)[idx])
 
@@ -71,12 +72,14 @@ func BindShellRemove(targets *[]Target, idx int) {
 
 // Приостановление взаимодействия с целью (вызов: /BS off)
 func BindShellOff(targets *[]Target, idx int) {
+	active_targets--
 	(*targets)[idx].status = false
 	fmt.Printf("[BindShell] %s off.\n", (*targets)[idx].name)
 }
 
 // Возобновление взаимодействия с целью (вызов: /BS on)
 func BindShellOn(targets *[]Target, idx int) {
+	active_targets++
 	(*targets)[idx].status = true
 	fmt.Printf("[BindShell] %s on.\n", (*targets)[idx].name)
 }
@@ -87,14 +90,9 @@ func BindShellTimeout(value int) {
 	fmt.Printf("[BindShell] Response timeout set to %d millisecond(s).\n", global_response_timeout)
 }
 
-// Устанавливает значение переменной response_waiting равным value (вызов: /BS waiting)
-func BindShellWaiting(value int) {
-	global_response_waiting = value
-	fmt.Printf("[BindShell] Response waiting set to %d millisecond(s).\n", global_response_waiting)
-}
-
 // Устанавливает соединение с выбранным хостом и добавляет его в список целей (вызов: /BS add)
 func BindShellAdd(targets *[]Target, target_name string) {
+	active_targets++
 	addSession(targets, target_name)
 }
 
@@ -150,6 +148,8 @@ func checkTimeoutAndWaiting(input string) (bool, int) {
 }
 
 func BindShellLoadTargets(targets *[]Target, targets_file string) {
+	active_targets = 0
+
 	// Завершение всех активных соединений
 	finishAllSessions(targets)
 
@@ -173,6 +173,8 @@ func BindShellLoadTargets(targets *[]Target, targets_file string) {
 
 		// Добавление сессии
 		addSession(targets, target_name)
+
+		active_targets++
 	}
 }
 
@@ -205,11 +207,6 @@ func BindShellRequest(request []string, targets *[]Target) {
 		ok, value := checkTimeoutAndWaiting(request[2])
 		if ok {
 			BindShellTimeout(value)
-		}
-	case "waiting":
-		ok, value := checkTimeoutAndWaiting(request[2])
-		if ok {
-			BindShellWaiting(value)
 		}
 	}
 }
@@ -285,15 +282,15 @@ func main() {
 				}
 			}
 
-			for i := 0; i < len(targets); i++ {
-				select {
-				case response := <-ch_resp:
-					if len(response) > 0 {
-						fmt.Println(response)
-					}
-					//case <-time.After(time.Duration(global_response_waiting) * time.Millisecond):
-					//	fmt.Println("Timeout waiting for response")
+			for i := 0; i < active_targets; i++ {
+				//select {
+				response := <-ch_resp
+				if len(response) > 0 {
+					fmt.Println(response)
 				}
+				//case <-time.After(time.Duration(global_response_waiting) * time.Millisecond):
+				//	fmt.Println("Timeout waiting for response")
+				//}
 			}
 		}
 	}
