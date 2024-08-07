@@ -2,15 +2,12 @@ package main
 
 import (
 	"bufio"
-	"context"
 	"fmt"
 	"log"
 	"net"
 	"os"
-	"runtime"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -21,17 +18,22 @@ type Target struct {
 	status bool
 }
 
+var global_response_timeout int = 100
+var global_response_waiting int = 500
+
 // Предоставляет список встроенных команд (вызов: /BS help).
 func BindShellHelp() {
 	fmt.Println("[BindShell] Command list:")
 	fmt.Println("\t- /BS add <ip:port> \t\tAdd target <ip>:<port> to set;")
 	fmt.Println("\t- /BS help \t\t\tShow this list;")
-	fmt.Println("\t- /BS off <index> \t\tStop sending commands to the host; (TODO)")
-	fmt.Println("\t- /BS on <index> \t\tResume sending commands to the host; (TODO)")
+	fmt.Println("\t- /BS off <index> \t\tStop sending commands to the host;")
+	fmt.Println("\t- /BS on <index> \t\tResume sending commands to the host;")
 	fmt.Println("\t- /BS remove <index> \t\tRemove target from set;")
+	fmt.Println("\t- /BS scenario <scenario> \tStart scenario from file <scenario>; (TODO)")
 	fmt.Println("\t- /BS stop \t\t\tFinish session;")
 	fmt.Println("\t- /BS targets \t\t\tShow current targets list;")
-	fmt.Println("\t- /BS wait <time> \t\tSet targets response waiting to <time> milliseconds. (TODO)")
+	fmt.Println("\t- /BS timeout <time> \t\tSet targets response timeout to <time> milliseconds;")
+	fmt.Println("\t- /BS waiting <time> \t\tSet response waiting to <time> milliseconds.")
 }
 
 // Завершает работу программы (вызов: /BS stop)
@@ -67,14 +69,28 @@ func BindShellRemove(targets *[]Target, idx int) {
 	*targets = append((*targets)[:idx], (*targets)[idx+1:]...)
 }
 
+// Приостановление взаимодействия с целью (вызов: /BS off)
 func BindShellOff(targets *[]Target, idx int) {
 	(*targets)[idx].status = false
 	fmt.Printf("[BindShell] %s off.\n", (*targets)[idx].name)
 }
 
+// Возобновление взаимодействия с целью (вызов: /BS on)
 func BindShellOn(targets *[]Target, idx int) {
 	(*targets)[idx].status = true
 	fmt.Printf("[BindShell] %s on.\n", (*targets)[idx].name)
+}
+
+// Устанавливает значение переменной response_timeout равным value (вызов: /BS timeout)
+func BindShellTimeout(value int) {
+	global_response_timeout = value
+	fmt.Printf("[BindShell] Response timeout set to %d millisecond(s).\n", global_response_timeout)
+}
+
+// Устанавливает значение переменной response_waiting равным value (вызов: /BS waiting)
+func BindShellWaiting(value int) {
+	global_response_waiting = value
+	fmt.Printf("[BindShell] Response waiting set to %d millisecond(s).\n", global_response_waiting)
 }
 
 // Устанавливает соединение с выбранным хостом и добавляет его в список целей (вызов: /BS add)
@@ -117,6 +133,19 @@ func checkTargetNumber(targets *[]Target, input string) (bool, int) {
 		return false, 0
 	} else {
 		return true, idx
+	}
+}
+
+func checkTimeoutAndWaiting(input string) (bool, int) {
+	value, err := strconv.Atoi(input)
+	if err != nil {
+		fmt.Println("[BindShell] The value is an invalid number!")
+		return false, 0
+	} else if value < 0 {
+		fmt.Println("[BindShell] The value lower then zero!")
+		return false, 0
+	} else {
+		return true, value
 	}
 }
 
@@ -172,27 +201,42 @@ func BindShellRequest(request []string, targets *[]Target) {
 		BindShellStop(targets)
 	case "targets":
 		BindShellTargets(targets)
+	case "timeout":
+		ok, value := checkTimeoutAndWaiting(request[2])
+		if ok {
+			BindShellTimeout(value)
+		}
+	case "waiting":
+		ok, value := checkTimeoutAndWaiting(request[2])
+		if ok {
+			BindShellWaiting(value)
+		}
 	}
 }
 
-func getCommandResult(mtx *sync.Mutex, target Target) {
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
-	defer cancel()
-	buffer := make([]byte, 4096)
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-			target.conn.Read(buffer)
-			(*mtx).Lock()
-			fmt.Printf("[%s]\n", target.name)
-			fmt.Println(string(buffer))
-			buffer = buffer[:0]
-			(*mtx).Unlock()
-			return
-		}
+func sendCommand(target Target, input string, ch_resp chan string) {
+	// Отправка команды на целевой хост
+	_, err := target.conn.Write([]byte(input + "\n"))
+	if err != nil {
+		log.Fatalln(err)
 	}
+
+	// Установка дедлайна для чтения ответа
+	if err := target.conn.SetReadDeadline(time.Now().Add(time.Duration(global_response_timeout) * time.Millisecond)); err != nil {
+		ch_resp <- fmt.Sprintf("Error setting read deadline for %s: %v", target.name, err)
+		log.Fatalln(err)
+	}
+
+	// Чтение ответа
+	buffer := make([]byte, 1024)
+	n, err := target.conn.Read(buffer)
+	if err != nil {
+		ch_resp <- ""
+		return
+	}
+
+	// Отправка ответа в канал
+	ch_resp <- fmt.Sprintf("Response from %s:\n%s", target.name, string(buffer[:n]))
 }
 
 func main() {
@@ -204,9 +248,6 @@ func main() {
 
 	// Создание объекта NewReader стандартного потока ввода
 	reader := bufio.NewReader(os.Stdin)
-
-	// Создание мьютекса для корректировки порядка io
-	mtx := sync.Mutex{}
 
 	// Инструктаж пользователя
 	fmt.Printf("[BindShell] Print \"/BS help\" to get info.\n")
@@ -233,25 +274,27 @@ func main() {
 			// Выполнение встроенной команды BindShell
 			BindShellRequest(splitted_input, &targets)
 		} else {
+			// Создание канала для получения результатов команд
+			ch_resp := make(chan string)
+
 			// Выполнение команды для каждого активного хоста
 			for i := 0; i < len(targets); i++ {
 				if targets[i].status == true {
 					// Отправка команды на целевой хост
-					_, err := targets[i].conn.Write([]byte(input + "\n"))
-					if err != nil {
-						log.Fatalln(err)
-						break
-					}
-
-					// Вызов горутины для ожидания ответа
-					go getCommandResult(&mtx, targets[i])
+					go sendCommand(targets[i], input, ch_resp)
 				}
 			}
 
-			// Фактическое ожидание в течение 50 миллисекунд
-			// TODO: изучить вопрос контекста и убрать лишнее создание горутин (?)
-			fmt.Printf("R: %d\n", runtime.NumGoroutine())
-			time.Sleep(50 * time.Millisecond)
+			for i := 0; i < len(targets); i++ {
+				select {
+				case response := <-ch_resp:
+					if len(response) > 0 {
+						fmt.Println(response)
+					}
+					//case <-time.After(time.Duration(global_response_waiting) * time.Millisecond):
+					//	fmt.Println("Timeout waiting for response")
+				}
+			}
 		}
 	}
 }
