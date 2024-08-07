@@ -67,6 +67,16 @@ func BindShellRemove(targets *[]Target, idx int) {
 	*targets = append((*targets)[:idx], (*targets)[idx+1:]...)
 }
 
+func BindShellOff(targets *[]Target, idx int) {
+	(*targets)[idx].status = false
+	fmt.Printf("[BindShell] %s off.\n", (*targets)[idx].name)
+}
+
+func BindShellOn(targets *[]Target, idx int) {
+	(*targets)[idx].status = true
+	fmt.Printf("[BindShell] %s on.\n", (*targets)[idx].name)
+}
+
 // Устанавливает соединение с выбранным хостом и добавляет его в список целей (вызов: /BS add)
 func BindShellAdd(targets *[]Target, target_name string) {
 	addSession(targets, target_name)
@@ -94,6 +104,19 @@ func finishSession(target Target) {
 func finishAllSessions(targets *[]Target) {
 	for i := 0; i < len(*targets); i++ {
 		finishSession((*targets)[i])
+	}
+}
+
+func checkTargetNumber(targets *[]Target, input string) (bool, int) {
+	idx, err := strconv.Atoi(input)
+	if err != nil {
+		fmt.Println("[BindShell] The index is an invalid number!")
+		return false, 0
+	} else if idx >= len(*targets) || idx < 0 {
+		fmt.Println("[BindShell] The index is out of bounds!")
+		return false, 0
+	} else {
+		return true, idx
 	}
 }
 
@@ -130,14 +153,21 @@ func BindShellRequest(request []string, targets *[]Target) {
 		BindShellAdd(targets, request[2])
 	case "help":
 		BindShellHelp()
-	case "remove":
-		idx, err := strconv.Atoi(request[2])
-		if err != nil {
-			fmt.Println("[BindShell] The index is an invalid number!")
-		} else if idx >= len(*targets) || idx < 0 {
-			fmt.Println("[BindShell] The index is out of bounds!")
+	case "off":
+		ok, idx := checkTargetNumber(targets, request[2])
+		if ok {
+			BindShellOff(targets, idx)
 		}
-		BindShellRemove(targets, idx)
+	case "on":
+		ok, idx := checkTargetNumber(targets, request[2])
+		if ok {
+			BindShellOn(targets, idx)
+		}
+	case "remove":
+		ok, idx := checkTargetNumber(targets, request[2])
+		if ok {
+			BindShellRemove(targets, idx)
+		}
 	case "stop":
 		BindShellStop(targets)
 	case "targets":
@@ -203,21 +233,19 @@ func main() {
 			// Выполнение встроенной команды BindShell
 			BindShellRequest(splitted_input, &targets)
 		} else {
-			// Выполнение команды для каждого хоста
+			// Выполнение команды для каждого активного хоста
 			for i := 0; i < len(targets); i++ {
-				// Отправка команды на целевой хост
-				_, err := targets[i].conn.Write([]byte(input + "\n"))
-				if err != nil {
-					log.Fatalln(err)
-					break
+				if targets[i].status == true {
+					// Отправка команды на целевой хост
+					_, err := targets[i].conn.Write([]byte(input + "\n"))
+					if err != nil {
+						log.Fatalln(err)
+						break
+					}
+
+					// Вызов горутины для ожидания ответа
+					go getCommandResult(&mtx, targets[i])
 				}
-
-				// Создание контекста для ожидания ответа в течение 20 миллисекунд
-				//ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
-				//defer cancel()
-
-				// Вызов горутины для ожидания ответа
-				go getCommandResult(&mtx, targets[i])
 			}
 
 			// Фактическое ожидание в течение 50 миллисекунд
