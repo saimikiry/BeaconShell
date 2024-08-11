@@ -261,7 +261,7 @@ func main() {
 		}
 
 		// Удаление лишних символов
-		input = input[:len(input)-2]
+		input = strings.TrimSpace(input)
 
 		// Разбиение команды на аргументы
 		splitted_input := strings.Fields(input)
