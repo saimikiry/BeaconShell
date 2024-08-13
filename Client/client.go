@@ -27,10 +27,10 @@ func BindShellHelp() {
 	fmt.Println("[BindShell] Command list:")
 	fmt.Println("\t- /BS add <ip:port> \t\tAdd target <ip>:<port> to set;")
 	fmt.Println("\t- /BS help \t\t\tShow this list;")
-	fmt.Println("\t- /BS inject \t\t\tInject bind shell to code and compile it;")
-	fmt.Println("\t- /BS off <index> \t\tStop sending commands to the host;")
-	fmt.Println("\t- /BS on <index> \t\tResume sending commands to the host;")
-	fmt.Println("\t- /BS remove <index> \t\tRemove target from set;")
+	fmt.Println("\t- /BS inject \t\t\tInject bind shell to code and compile it; (BETA)")
+	fmt.Println("\t- /BS off <host_id> \t\tStop sending commands to the host;")
+	fmt.Println("\t- /BS on <host_id> \t\tResume sending commands to the host;")
+	fmt.Println("\t- /BS remove <host_id> \t\tRemove target from set;")
 	fmt.Println("\t- /BS scenario <scenario> \tStart scenario from file <scenario>; (TODO)")
 	fmt.Println("\t- /BS stop \t\t\tFinish session;")
 	fmt.Println("\t- /BS targets \t\t\tShow current targets list;")
@@ -364,6 +364,7 @@ func BindShellRequest(request []string, targets *[]Target) {
 	// В случае, если конкретная инструкция не указана, вызывается /BS help
 	if len(request) == 1 {
 		BindShellHelp()
+		return
 	}
 
 	switch request[1] {
@@ -421,7 +422,25 @@ func BindShellRequest(request []string, targets *[]Target) {
 			BindShellOn(targets, idx)
 		}
 	case "remove":
+		// Если аргументов более трех, остановка
+		if len(request) > 3 {
+			fmt.Println("[BindShell] Error! Correct usage: \"/BS remove\" or \"/BS remove <host_id>\"\n")
+			return
+		}
+
+		// Если не указан конкретный хост, удалить всё
+		if len(request) == 2 {
+			cnt := len(*targets)
+			for i := 0; i < cnt; i++ {
+				BindShellRemove(targets, 0)
+			}
+			return
+		}
+
+		// Иначе - проверка корректности идентификатора
 		ok, idx := checkTargetNumber(targets, request[2])
+
+		// Если идентификатор корректен, удаляет выбранный хост
 		if ok {
 			BindShellRemove(targets, idx)
 		}
