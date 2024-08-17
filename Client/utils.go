@@ -2,9 +2,11 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"net"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Структура цели
@@ -115,4 +117,29 @@ func updateImports(lines []string, new_imports []string) []string {
 	}
 
 	return updatedLines
+}
+
+func sendCommand(target Target, input string, ch_resp chan string) {
+	// Отправка команды на целевой хост
+	_, err := target.conn.Write([]byte(input + "\n"))
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	// Установка дедлайна для чтения ответа
+	if err := target.conn.SetReadDeadline(time.Now().Add(time.Duration(global_response_timeout) * time.Millisecond)); err != nil {
+		ch_resp <- fmt.Sprintf("Error setting read deadline for %s: %v", target.name, err)
+		log.Fatalln(err)
+	}
+
+	// Чтение ответа
+	buffer := make([]byte, global_buffer_size)
+	n, err := target.conn.Read(buffer)
+	if err != nil {
+		ch_resp <- ""
+		return
+	}
+
+	// Отправка ответа в канал
+	ch_resp <- fmt.Sprintf("Response from %s:\n%s", target.name, string(buffer[:n]))
 }

