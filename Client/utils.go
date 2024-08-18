@@ -21,10 +21,10 @@ func addSession(targets *[]Target, target_name string) {
 	// Установка соединения с целевым хостом
 	conn, err := net.Dial("tcp", target_name)
 	if err != nil {
-		fmt.Printf("[BindShell] %s << Connection NOT established.\n", target_name)
+		BSPrint("%s << Connection NOT established.\n", target_name)
 		return
 	} else {
-		fmt.Printf("[BindShell] %s << Connection successfully established.\n", target_name)
+		BSPrint("%s << Connection successfully established.\n", target_name)
 	}
 
 	// Создание буфера для считывания ОС целевого хоста
@@ -33,7 +33,7 @@ func addSession(targets *[]Target, target_name string) {
 	// Чтение ОС хоста
 	n, err := conn.Read(init_buf)
 	if err != nil {
-		fmt.Println("[BindShell] Failed to read host OS!")
+		BSPrint("Failed to read host OS!\n")
 	}
 
 	// Добавление хоста в список целей
@@ -44,7 +44,7 @@ func addSession(targets *[]Target, target_name string) {
 
 func finishSession(target Target) {
 	if target.conn.Close() == nil {
-		fmt.Printf("[BindShell] %s << Connection successfully terminated.\n", target.name)
+		BSPrint("%s << Connection successfully terminated.\n", target.name)
 	}
 }
 
@@ -57,10 +57,10 @@ func finishAllSessions(targets *[]Target) {
 func checkTargetNumber(targets *[]Target, input string) (bool, int) {
 	idx, err := strconv.Atoi(input)
 	if err != nil {
-		fmt.Println("[BindShell] The index is an invalid number!")
+		BSPrint("The index is an invalid number!\n")
 		return false, 0
 	} else if idx >= len(*targets) || idx < 0 {
-		fmt.Println("[BindShell] The index is out of bounds!")
+		BSPrint("The index is out of bounds!\n")
 		return false, 0
 	} else {
 		return true, idx
@@ -70,10 +70,10 @@ func checkTargetNumber(targets *[]Target, input string) (bool, int) {
 func checkPositiveNumber(input string) (bool, int) {
 	value, err := strconv.Atoi(input)
 	if err != nil {
-		fmt.Println("[BindShell] The value is an invalid number!")
+		BSPrint("The value is an invalid number!\n")
 		return false, 0
 	} else if value < 0 {
-		fmt.Println("[BindShell] The value lower then zero!")
+		BSPrint("The value lower then zero!\n")
 		return false, 0
 	} else {
 		return true, value
@@ -119,11 +119,15 @@ func updateImports(lines []string, new_imports []string) []string {
 	return updatedLines
 }
 
+// Отправляет команду на целевой хост
 func sendCommand(target Target, input string, ch_resp chan string) {
+	//if err := target.conn.SetReadDeadline(time.Now().Add(time.Duration(100) * time.Millisecond)); err != nil {}
+
 	// Отправка команды на целевой хост
 	_, err := target.conn.Write([]byte(input + "\n"))
 	if err != nil {
-		log.Fatalln(err)
+		BSPrint("Can't send command to %s", target.name)
+		// TODO: delete from targets
 	}
 
 	// Установка дедлайна для чтения ответа

