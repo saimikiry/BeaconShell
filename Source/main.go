@@ -6,13 +6,13 @@ import (
 	"log"
 	"net"
 	"os"
-	"strings"
 	"sync"
 )
 
 var global_response_timeout int = 1000
 var global_buffer_size int = 4096
 var active_targets int = 0
+var scenario_mode bool = false
 
 // Предоставляет список встроенных команд (вызов: /BS help).
 func BeaconShellHelp() {
@@ -40,7 +40,7 @@ func BeaconShellHelp() {
 
 	fmt.Println("\n\t\tOther:")
 	fmt.Println("\t- /BS help \t\t\tShow this list;")
-	fmt.Println("\t- /BS scenario <scenario> \tStart scenario from file <scenario>; (TODO)")
+	fmt.Println("\t- /BS scenario <scenario> \tStart scenario from file <scenario>;")
 	fmt.Println("\t- /BS stop \t\t\tFinish session.")
 
 	fmt.Println("")
@@ -168,11 +168,30 @@ func BeaconShellGroup(targets *[]Target, idx int, group_name string) {
 	BSPrint("%s group set: %s.\n", (*targets)[idx].name, group_name)
 }
 
-func BeaconShellScenario(targets *[]Target) {
+func BeaconShellScenario(targets *[]Target, scenario_name string, mtx *sync.Mutex) {
+	BSPrint("Starting scenario %s.\n", scenario_name)
 
+	// Открытие файла сценария
+	file, err := os.Open(scenario_name)
+	if err != nil {
+		log.Fatalln(err)
+	}
+	defer file.Close()
+
+	// Создание сканера для считывания
+	scanner := bufio.NewScanner(file)
+
+	// Построчное считывание файла
+	for scanner.Scan() {
+		// Получение инструкции сценария
+		command := scanner.Text()
+
+		// Обработка запроса
+		processRequest(targets, command, mtx)
+	}
 }
 
-func BeaconShellRequest(request []string, targets *[]Target) {
+func BeaconShellRequest(request []string, targets *[]Target, mtx *sync.Mutex) {
 	// В случае, если конкретная инструкция не указана, вызывается /BS help
 	if len(request) == 1 {
 		BeaconShellHelp()
@@ -185,11 +204,13 @@ func BeaconShellRequest(request []string, targets *[]Target) {
 			return
 		}
 
+		mtx.Lock()
 		if request[2] == "list" {
 			BeaconShellListAdd(targets, request[3])
 		} else {
 			BeaconShellAdd(targets, request[2])
 		}
+		mtx.Unlock()
 	case "buffer":
 		ok, value := checkPositiveNumber(request[2])
 		if ok {
@@ -205,12 +226,18 @@ func BeaconShellRequest(request []string, targets *[]Target) {
 			BeaconShellInject(request[2], request[3], request[4], request[5], request[6], value)
 		}
 	case "group":
+		mtx.Lock()
+		defer mtx.Unlock()
+
 		ok, idx := checkTargetNumber(targets, request[3])
 
 		if ok {
 			BeaconShellGroup(targets, idx, request[2])
 		}
 	case "off":
+		mtx.Lock()
+		defer mtx.Unlock()
+
 		// Если аргументов более трех, остановка
 		if len(request) > 4 {
 			BSPrint("Error! Correct usage: \"/BS off\", \"/BS off <host_id>\" or \"/BS off group <group>\".\n")
@@ -243,6 +270,9 @@ func BeaconShellRequest(request []string, targets *[]Target) {
 			BeaconShellOff(targets, idx)
 		}
 	case "on":
+		mtx.Lock()
+		defer mtx.Unlock()
+
 		// Если аргументов более трех, остановка
 		if len(request) > 4 {
 			BSPrint("Error! Correct usage: \"/BS on\", \"/BS on <host_id>\" or \"/BS on group <group>\".\n")
@@ -275,6 +305,9 @@ func BeaconShellRequest(request []string, targets *[]Target) {
 			BeaconShellOn(targets, idx)
 		}
 	case "remove":
+		mtx.Lock()
+		defer mtx.Unlock()
+
 		// Если аргументов более трех, остановка
 		if len(request) > 3 {
 			BSPrint("Error! Correct usage: \"/BS remove\", \"/BS remove <host_id>\" or \"/BS remove group <group>\".\n")
@@ -312,6 +345,8 @@ func BeaconShellRequest(request []string, targets *[]Target) {
 		if ok {
 			BeaconShellRemove(targets, idx)
 		}
+	case "scenario":
+		BeaconShellScenario(targets, request[2], mtx)
 	case "stop":
 		BeaconShellStop(targets)
 	case "targets":
@@ -376,6 +411,8 @@ func main() {
 
 	// Инструктаж пользователя
 	BSPrint("Print \"/BS help\" to get info.\n")
+
+	// Основной рабочий цикл
 	for {
 		// Приглашение к вводу команды
 		BSPrint(">> ")
@@ -383,42 +420,7 @@ func main() {
 		// Считывание команды пользователя
 		input, _ := reader.ReadString('\n')
 
-		// Обработка пустого ввода
-		if len(input) <= 2 {
-			continue
-		}
-
-		// Удаление лишних символов
-		input = strings.TrimSpace(input)
-
-		// Разбиение команды на аргументы
-		splitted_input := strings.Fields(input)
-
-		// Проверка типа команды
-		if splitted_input[0] == "/BS" {
-			// Выполнение встроенной команды BeaconShell
-			mtx.Lock()
-			BeaconShellRequest(splitted_input, &targets)
-			mtx.Unlock()
-		} else {
-			// Создание канала для получения результатов команд
-			ch_resp := make(chan string)
-
-			// Выполнение команды для каждого активного хоста
-			for i := 0; i < len(targets); i++ {
-				if targets[i].status == true {
-					// Отправка команды на целевой хост
-					go sendCommand(targets[i], input, ch_resp)
-				}
-			}
-
-			// Получение ответов от каждого активного хоста
-			for i := 0; i < active_targets; i++ {
-				response := <-ch_resp
-				if len(response) > 0 {
-					fmt.Println(response)
-				}
-			}
-		}
+		// Обработка запроса
+		processRequest(&targets, input, &mtx)
 	}
 }

