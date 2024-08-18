@@ -382,6 +382,7 @@ func ReverseShellStartServer(targets *[]Target, mtx *sync.Mutex) {
 	if err != nil {
 		log.Fatalln(err)
 	}
+	defer listener.Close()
 
 	for {
 		conn, err := listener.Accept()

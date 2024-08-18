@@ -1,0 +1,5 @@
+/BS on group linux
+uname -a
+pwd
+ls /home
+ifconfig
