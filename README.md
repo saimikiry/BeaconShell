@@ -1,7 +1,6 @@
 # Building and usage
----
 To build you will need:
-- go (tested on 1.22.2)
+- Go (tested on 1.22.2)
 
 Use the following command.
 ```
@@ -14,7 +13,6 @@ To start, use the following command.
 ```
 
 # BeaconShell toolkit
----
 Use "/BS help" to 
 ```
 Targets status:
