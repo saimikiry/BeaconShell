@@ -59,7 +59,7 @@ func BeaconShellStop(targets *[]Target) {
 func BeaconShellTargets(targets *[]Target) {
 	BSPrint("Current targets (active: %d, total: %d):\n", active_targets, len(*targets))
 	for i := 0; i < len(*targets); i++ {
-		if (*targets)[i].status == true {
+		if (*targets)[i].status {
 			fmt.Printf("\t<%d> [+] {%s} (%s) %s\n", i, (*targets)[i].os, (*targets)[i].group, (*targets)[i].name)
 		} else {
 			fmt.Printf("\t<%d> [-] {%s} (%s) %s\n", i, (*targets)[i].os, (*targets)[i].group, (*targets)[i].name)
@@ -69,7 +69,10 @@ func BeaconShellTargets(targets *[]Target) {
 
 // Удаляет выбранный хост из списка целей и завершает с ним сессию (вызов: /BS remove)
 func BeaconShellRemove(targets *[]Target, idx int) {
-	active_targets--
+	// Если удаляемый хост активен, уменьшить число активных хостов
+	if (*targets)[idx].status {
+		active_targets--
+	}
 
 	// Завершение сессии удаляемого хоста
 	finishSession((*targets)[idx])
@@ -82,7 +85,7 @@ func BeaconShellRemove(targets *[]Target, idx int) {
 
 // Приостановление взаимодействия с целью (вызов: /BS off)
 func BeaconShellOff(targets *[]Target, idx int) {
-	if (*targets)[idx].status == false {
+	if !(*targets)[idx].status {
 		BSPrint("The host is already an inactive target!\n")
 		return
 	}
@@ -94,7 +97,7 @@ func BeaconShellOff(targets *[]Target, idx int) {
 
 // Возобновление взаимодействия с целью (вызов: /BS on)
 func BeaconShellOn(targets *[]Target, idx int) {
-	if (*targets)[idx].status == true {
+	if (*targets)[idx].status {
 		BSPrint("The host is already an active target!\n")
 		return
 	}
